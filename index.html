@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">
+<title>Where We're From</title>
+<meta name="description" content="A collaborative map of where everyone in the class is from. Add your city.">
+
+<meta property="og:title" content="Where We're From">
+<meta property="og:description" content="Add your city to the class map.">
+<meta property="og:type" content="website">
+
+<link rel="preconnect" href="https://basemaps.cartocdn.com">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="map" role="application" aria-label="World map of class locations"></div>
+
+<header class="topbar">
+  <div class="topbar-title">
+    <h1>Where We&rsquo;re From</h1>
+    <p id="tally" class="tally">Loading the map&hellip;</p>
+  </div>
+  <div class="topbar-actions">
+    <button id="share-btn" class="btn btn-ghost" type="button">Share link</button>
+    <button id="add-btn" class="btn btn-primary" type="button">Add your city</button>
+  </div>
+</header>
+
+<!-- Setup banner: shown only when config.js has not been filled in -->
+<div id="setup-notice" class="setup-notice" hidden>
+  <strong>Almost there.</strong>
+  <span>Open <code>config.js</code> and paste in your Supabase project URL and anon key.
+  Until then the map runs in <em>demo mode</em> &mdash; pins are saved only in this browser.</span>
+  <button class="setup-dismiss" type="button" aria-label="Dismiss">&times;</button>
+</div>
+
+<!-- Add-a-pin panel -->
+<aside id="panel" class="panel" hidden aria-labelledby="panel-title">
+  <div class="panel-head">
+    <h2 id="panel-title">Put yourself on the map</h2>
+    <button id="panel-close" class="icon-btn" type="button" aria-label="Close">&times;</button>
+  </div>
+
+  <form id="pin-form" autocomplete="off" novalidate>
+    <label class="field">
+      <span class="field-label">Your city <em>required</em></span>
+      <input id="q" type="text" placeholder="Start typing&hellip; e.g. Lagos, Quito, Seoul"
+             aria-describedby="q-hint" role="combobox" aria-expanded="false"
+             aria-controls="results" aria-autocomplete="list">
+      <span id="q-hint" class="hint">Or close this and click anywhere on the map.</span>
+    </label>
+
+    <ul id="results" class="results" role="listbox" aria-label="City search results" hidden></ul>
+
+    <div id="chosen" class="chosen" hidden>
+      <span class="chosen-dot" aria-hidden="true"></span>
+      <span id="chosen-label" class="chosen-label"></span>
+      <button id="chosen-clear" class="link-btn" type="button">change</button>
+    </div>
+
+    <label class="field">
+      <span class="field-label">Your name <em>optional</em></span>
+      <input id="name" type="text" maxlength="40" placeholder="Leave blank to stay anonymous">
+    </label>
+
+    <label class="field">
+      <span class="field-label">A line about it <em>optional</em></span>
+      <input id="note" type="text" maxlength="140" placeholder="&ldquo;Grew up two blocks from the river&rdquo;">
+    </label>
+
+    <p id="form-error" class="form-error" hidden role="alert"></p>
+
+    <button id="submit-btn" class="btn btn-primary btn-block" type="submit" disabled>
+      Add my pin
+    </button>
+  </form>
+
+  <div id="mine" class="mine" hidden>
+    <p>You&rsquo;re on the map as <strong id="mine-label"></strong>.</p>
+    <button id="remove-btn" class="link-btn danger" type="button">Remove my pin</button>
+  </div>
+</aside>
+
+<div id="toast" class="toast" hidden role="status"></div>
+
+<footer class="credits">
+  <span>&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</span>
+  <span>&middot;</span>
+  <span>Basemap <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a></span>
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

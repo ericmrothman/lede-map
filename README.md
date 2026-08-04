@@ -44,19 +44,32 @@ window.MAP_CONFIG = {
 
 ### 3. Publish
 
-```sh
-git init
-git add .
-git commit -m "Class map"
-git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPO.git
-git push -u origin main
+The repo is already initialised and committed locally on `main`. Two steps left.
+
+**a. Push it to GitHub, from VS Code**
+
+1. Open the **Source Control** panel (`⌃⇧G`).
+2. Click **Publish Branch**, or Command Palette (`⇧⌘P`) → **Publish to GitHub**.
+3. Choose **Publish to a public repository** — Pages will not serve a private
+   repo on the free plan.
+4. When it asks for a name, type `lede-2026-world-map`. It will suggest the
+   folder name (`lede-map`) by default, so this needs changing.
+
+**b. Turn on Pages**
+
+On github.com, in the new repo: **Settings → Pages → Build and deployment →
+Source: Deploy from a branch → Branch: `main` / `/ (root)` → Save**.
+
+Give it a minute, then it's live at:
+
+```
+https://ericmrothman.github.io/lede-2026-world-map/
 ```
 
-Then on GitHub: **Settings → Pages → Source: Deploy from a branch → `main` / `root`**.
+That's the link you send to the class.
 
-A minute later it's live at `https://YOUR-USERNAME.github.io/YOUR-REPO/`. That's
-the link you send to the class.
+**Pushing changes later** — edit, then in Source Control write a message, click
+**Commit**, then **Sync Changes**. Pages redeploys in under a minute.
 
 ---
 

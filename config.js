@@ -11,8 +11,8 @@
 --------------------------------------------------------------------------- */
 
 window.MAP_CONFIG = {
-  supabaseUrl: '',   // e.g. 'https://abcdefghijklm.supabase.co'
-  supabaseKey: '',   // the "anon / public" key from Project Settings → API
+  supabaseUrl: 'https://qppptqodjiwusagbmrqy.supabase.co',
+  supabaseKey: 'sb_publishable_BO7KN4iL0dwNTESSg9ykKw_-PgPosIx',
 
   // Cosmetic — change freely.
   title: "LEDE 2026 WORLD MAP",

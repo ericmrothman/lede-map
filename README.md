@@ -1,4 +1,4 @@
-# Where We're From
+# LEDE 2026 WORLD MAP
 
 A shared world map. Open the link, add your city, see everyone else. No sign-in,
 no accounts, no app. Built to be a keepsake at the end of a class.

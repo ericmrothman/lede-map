@@ -123,6 +123,12 @@ and you lose the ability to remove it yourself.
 debounce handles normal typing. If the whole class submits in the same thirty
 seconds it still holds up, because each person's browser is a separate client.
 
+**Free Supabase projects pause when idle** — currently after about a week with
+no requests. A paused project returns errors, so the map goes blank until you
+un-pause it from the Supabase dashboard (one click, data intact). This matters
+here because a class map gets heavy use for a day and then sits still. Don't
+rely on the live site being up in six months; rely on the CSV below.
+
 **Keeping the artifact.** When the class is over, export it:
 Supabase → **Table Editor → pins → Export to CSV**. That CSV is the real
 souvenir; the site is just how you collected it.

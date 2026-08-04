@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   Where We're From — a shared class map.
+   LEDE 2026 WORLD MAP — a shared class map.
 
    Architecture, briefly:
      • Static site (works on GitHub Pages). No build step, no server.
@@ -15,7 +15,7 @@
   'use strict';
 
   const CFG = Object.assign(
-    { supabaseUrl: '', supabaseKey: '', title: "Where We're From", refreshMs: 12000 },
+    { supabaseUrl: '', supabaseKey: '', title: 'LEDE 2026 WORLD MAP', refreshMs: 12000 },
     window.MAP_CONFIG || {}
   );
 

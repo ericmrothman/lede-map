@@ -44,32 +44,20 @@ window.MAP_CONFIG = {
 
 ### 3. Publish
 
-The repo is already initialised and committed locally on `main`. Two steps left.
-
-**a. Push it to GitHub, from VS Code**
-
-1. Open the **Source Control** panel (`⌃⇧G`).
-2. Click **Publish Branch**, or Command Palette (`⇧⌘P`) → **Publish to GitHub**.
-3. Choose **Publish to a public repository** — Pages will not serve a private
-   repo on the free plan.
-4. When it asks for a name, type `lede-2026-world-map`. It will suggest the
-   folder name (`lede-map`) by default, so this needs changing.
-
-**b. Turn on Pages**
-
-On github.com, in the new repo: **Settings → Pages → Build and deployment →
-Source: Deploy from a branch → Branch: `main` / `/ (root)` → Save**.
-
-Give it a minute, then it's live at:
+Already done. The site is live at:
 
 ```
-https://ericmrothman.github.io/lede-2026-world-map/
+https://ericmrothman.github.io/lede-map/
 ```
 
-That's the link you send to the class.
+That's the link to send to the class.
 
-**Pushing changes later** — edit, then in Source Control write a message, click
-**Commit**, then **Sync Changes**. Pages redeploys in under a minute.
+**Pushing changes** — edit, then in the Source Control panel (`⌃⇧G`) write a
+message, click **Commit**, then **Sync Changes**. Pages redeploys in under a
+minute; hard-refresh (`⇧⌘R`) if you still see the old version.
+
+> Don't rename the repository. The URL above is already in circulation, and
+> renaming breaks every link that's been shared.
 
 ---
 

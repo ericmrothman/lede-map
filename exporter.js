@@ -25,7 +25,8 @@ window.LedeMapExport = (function () {
   const REF_WIDTH = 1600;
   const TILE = 256;
   const MAX_TILES = 600;          // a mis-framed view must not fetch thousands
-  const MARGIN = 0.15;            // air around the pins, as a fraction of width
+  const MARGIN = 0.22;            // air around the pins, as a fraction of each axis
+  const ARC_ALPHA = 0.26;         // matches the live map
   const SERIF = '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif';
   const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif';
 
@@ -90,13 +91,12 @@ window.LedeMapExport = (function () {
      keeps the fractional part: flooring to an integer zoom can waste up to half
      the frame. Tiles come from the integer below and get scaled to suit.
 
-     Centring is the part worth the trouble. The middle of a bounding box is the
-     midpoint of its two most extreme pins, so one person in the Falklands drags
-     the whole composition south over empty ocean. Aim at the centre of mass of
-     the pins instead, then pull that back only as far as it takes to keep every
-     pin inside the frame. The result sits on the landmass rather than on the
-     average of two outliers. */
-  function frame(points, refW, refH, padding) {
+     Centred on the middle of the pins' extent, which is what puts equal air
+     above and below. Weighting toward the centre of mass was tried and looked
+     wrong: most of the class is in the northern hemisphere, so the camera rode
+     up and left the picture sitting high in the frame. Symmetry reads better
+     than statistics here. */
+  function frame(points, refW, refH, padX, padY) {
     const map = app.map;
     const lats = points.map((p) => p[0]);
     const lngs = points.map((p) => p[1]);
@@ -110,30 +110,20 @@ window.LedeMapExport = (function () {
     const w0 = Math.max(Math.abs(se.x - nw.x), 1e-6);
     const h0 = Math.max(Math.abs(se.y - nw.y), 1e-6);
 
-    const fit = Math.min((refW - padding * 2) / w0, (refH - padding * 2) / h0);
+    const fit = Math.min((refW - padX * 2) / w0, (refH - padY * 2) / h0);
     const zoom = Math.max(0, Math.min(18, Math.log2(fit)));
 
     const projected = points.map((p) => map.project(p, zoom));
-    const mean = projected.reduce(
-      (acc, p) => ({ x: acc.x + p.x / projected.length, y: acc.y + p.y / projected.length }),
-      { x: 0, y: 0 }
-    );
-
-    // How far the centre may sit from the extremes and still contain them.
-    const halfW = refW / 2 - padding;
-    const halfH = refH / 2 - padding;
     const xs = projected.map((p) => p.x);
     const ys = projected.map((p) => p.y);
 
-    const squeeze = (value, lo, hi, fallback) =>
-      (lo > hi ? fallback : Math.min(Math.max(value, lo), hi));
-
-    const cx = squeeze(mean.x, Math.max(...xs) - halfW, Math.min(...xs) + halfW,
-                       (Math.min(...xs) + Math.max(...xs)) / 2);
-    const cy = squeeze(mean.y, Math.max(...ys) - halfH, Math.min(...ys) + halfH,
-                       (Math.min(...ys) + Math.max(...ys)) / 2);
-
-    return { center: map.unproject([cx, cy], zoom), zoom };
+    return {
+      center: map.unproject([
+        (Math.min(...xs) + Math.max(...xs)) / 2,
+        (Math.min(...ys) + Math.max(...ys)) / 2,
+      ], zoom),
+      zoom,
+    };
   }
 
   /* --- Tiles ------------------------------------------------------------- */
@@ -228,8 +218,12 @@ window.LedeMapExport = (function () {
        the world in the picture, which is the point of the thing. It also gives
        every name somewhere to sit — a dot inside the frame can still carry a
        label that isn't, and the solver may only choose among spots that fit.
-       The margin is a fraction of the frame, so every preset composes alike. */
-    const view = frame(seeds, refW, refH, Math.round(refW * MARGIN));
+
+       The margin is a fraction of each axis, not a single number: a width-based
+       pad applied to a 16:9 height eats most of the frame, and the pins end up
+       a thin band across the middle. */
+    const margin = typeof app.cfg.exportMargin === 'number' ? app.cfg.exportMargin : MARGIN;
+    const view = frame(seeds, refW, refH, refW * margin, refH * margin);
 
     const originRef = map.project(view.center, view.zoom).subtract([refW / 2, refH / 2]);
     const toPoint = (lat, lng) => {
@@ -251,11 +245,14 @@ window.LedeMapExport = (function () {
     if (flags.arcs) {
       g.save();
       g.strokeStyle = accent;
-      g.globalAlpha = 0.22;
       g.lineWidth = 1;
-      for (const line of app.arcPaths()) {
+      g.lineCap = 'round';
+      // Each run carries its own opacity: full strength away from the seam,
+      // falling to nothing as it approaches the edge of the sheet.
+      for (const run of app.arcPaths()) {
+        g.globalAlpha = ARC_ALPHA * run.alpha;
         g.beginPath();
-        line.forEach(([lat, lng], i) => {
+        run.points.forEach(([lat, lng], i) => {
           const p = toPoint(lat, lng);
           if (i === 0) g.moveTo(p.x, p.y); else g.lineTo(p.x, p.y);
         });

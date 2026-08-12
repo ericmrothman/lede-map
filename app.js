@@ -669,38 +669,85 @@
     return pts;
   }
 
-  /* The map repeats: pan east and the same continents come round again, because
-     the basemap draws a copy of the world either side of the one you started on.
-     The arcs get the same treatment — each path is emitted once per copy, offset
-     a full turn of the world.
+  /* A course to Tokyo runs west over the antimeridian, so the path has to be cut
+     where it leaves the map. Cut bluntly it looks broken — the line stops dead
+     against an invisible wall. So it dissolves into the seam instead: opacity
+     falls away over the last stretch of longitude, and the arc reads as
+     continuing past the edge of the sheet rather than ending at it.
 
-     That is what makes a line to Tokyo behave. Its true course leaves the left
-     edge heading west; the copy one world over is already drawn arriving from
-     the right edge and landing on the pin. Nothing is cut, nothing is redrawn
-     the long way round, and nothing runs off into empty space — the arcs wrap
-     exactly the way the ground underneath them does. */
-  const WORLD_COPIES = [-360, 0, 360];
+     The two halves are returned as runs of near-constant opacity, which keeps
+     the count of drawn paths sane — a long stretch far from the seam is one run
+     at full strength, and only the fading tail is finely divided. */
+  const SEAM_FADE = 38;      // degrees of longitude over which an arc dissolves
+  const ARC_ALPHA = 0.26;
 
+  const fadeAt = (lng) => Math.max(0, Math.min(1, (180 - Math.abs(lng)) / SEAM_FADE));
+
+  function splitAtSeam(points) {
+    const wrap = (x) => ((((x + 180) % 360) + 360) % 360) - 180;
+    const segments = [];
+    let current = [];
+    let prev = null, prevLat = null;
+
+    for (const [lat, lng] of points) {
+      const x = wrap(lng);
+      if (prev !== null && Math.abs(x - prev) > 180) {
+        const leaving = prev > 0 ? 180 : -180;
+        const arriving = -leaving;
+        const run = Math.abs(leaving - prev) + Math.abs(x - arriving);
+        const f = run ? Math.abs(leaving - prev) / run : 0.5;
+        const latSeam = prevLat + (lat - prevLat) * f;
+        current.push([latSeam, leaving]);
+        segments.push(current);
+        current = [[latSeam, arriving]];
+      }
+      current.push([lat, x]);
+      prev = x;
+      prevLat = lat;
+    }
+    if (current.length) segments.push(current);
+    return segments.filter((seg) => seg.length > 1);
+  }
+
+  function fadeRuns(points) {
+    const runs = [];
+    let pts = [];
+    let alpha = null;
+
+    for (const p of points) {
+      const a = fadeAt(p[1]);
+      if (alpha === null) { alpha = a; pts = [p]; continue; }
+      if (Math.abs(a - alpha) > 0.05) {
+        pts.push(p);                 // runs overlap by a point, so no hairline gaps
+        runs.push({ alpha, points: pts });
+        pts = [p];
+        alpha = a;
+      } else {
+        pts.push(p);
+      }
+    }
+    if (pts.length > 1) runs.push({ alpha, points: pts });
+    return runs.filter((r) => r.alpha > 0.02 && r.points.length > 1);
+  }
+
+  /* Returns runs, not arcs: one arc may be cut in two and each half graded. */
   function arcPaths() {
     const origin = CFG.arcOrigin;
     if (!origin || !pins.length) return [];
     return groupPins(pins)
       .filter((g) => Math.abs(g.lat - origin.lat) > 0.01 || Math.abs(g.lng - origin.lng) > 0.01)
-      .flatMap((g) => {
-        const path = greatCircle(origin, g);
-        return WORLD_COPIES.map((shift) => path.map(([lat, lng]) => [lat, lng + shift]));
-      });
+      .flatMap((g) => splitAtSeam(greatCircle(origin, g, 96)).flatMap(fadeRuns));
   }
 
   function drawArcs() {
     arcLayer.clearLayers();
     if (!showArcs) return;
-    for (const line of arcPaths()) {
-      L.polyline(line, {
+    for (const run of arcPaths()) {
+      L.polyline(run.points, {
         pane: 'arcs',
         color: accentHex(),      // a literal, so a theme change means a redraw
         weight: 1,
-        opacity: 0.22,
+        opacity: ARC_ALPHA * run.alpha,
         interactive: false,
       }).addTo(arcLayer);
     }

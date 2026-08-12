@@ -3,3 +3,6 @@ Thumbs.db
 *.log
 node_modules/
 .vscode/
+
+# Local snapshots from ./backup.sh — kept off GitHub on purpose (see README)
+backups/

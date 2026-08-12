@@ -136,9 +136,33 @@ un-pause it from the Supabase dashboard (one click, data intact). This matters
 here because a class map gets heavy use for a day and then sits still. Don't
 rely on the live site being up in six months; rely on the CSV below.
 
-**Keeping the artifact.** When the class is over, export it:
-Supabase → **Table Editor → pins → Export to CSV**. That CSV is the real
-souvenir; the site is just how you collected it.
+---
+
+## Backups
+
+```sh
+./backup.sh
+```
+
+Writes `backups/pins-YYYY-MM-DD-HHMM.csv` and `.json`. Needs only curl, reads
+the credentials out of `config.js`, and refuses to leave a file behind if the
+request fails or returns nothing — a backup that silently saved zero rows is
+worse than none. Run it whenever you want a checkpoint, and certainly once the
+class has finished adding themselves.
+
+`backups/` is gitignored on purpose. The map is public, but a public *repo* is
+permanent in a way the map is not: anything committed stays in git history even
+after someone removes their pin. Keep the snapshots local, or put them somewhere
+private.
+
+**The two exports are not the same thing.** `backup.sh` uses the public key, so
+it gets every column except `secret` — the whole artifact, and what you want for
+keeping. It is not restore-ready: reimport it and nobody could delete their own
+pin. For a true dump use Supabase → **Table Editor → pins → Export to CSV**,
+which runs with privileged access and includes `secret`.
+
+**Keeping the artifact.** The CSV is the real souvenir; the site is just how you
+collected it. It outlives the free tier, the paused project, and the repo.
 
 ---
 

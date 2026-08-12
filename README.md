@@ -154,10 +154,11 @@ interpolated along the sphere so the line to Seoul bows the way a flight path
 does. They sit in a pane below the dots and the names and are off by default;
 they are meant to be a texture, not a subject.
 
-They wrap the way the map does. A course to Tokyo runs west across the Pacific
-and over the antimeridian, so each arc is drawn once per copy of the world —
-the line leaves one edge and the copy alongside is already arriving at the
-other, landing on the pin.
+A course to Tokyo runs west across the Pacific and over the antimeridian, so it
+has to be cut where it leaves the map. Rather than stopping dead against an
+invisible wall, each arc dissolves into the seam — opacity falls away over the
+last stretch of longitude, so the line reads as continuing past the edge of the
+sheet instead of ending at it.
 
 **Save as image** — writes a PNG at 1920×1080, 2560×1440, 4K, or your own screen
 size, made to be used as a desktop background. It renders from `@2x` tiles, so a
@@ -167,9 +168,8 @@ Two things the export does differently from the screen, both on purpose. It
 leaves the basemap's own place names off: at export scale CARTO sets continent
 and country lettering enormous, and it ends up reading as the subject of the
 image instead of the people. And it frames loose rather than cropping tight to
-the pins, centred on their centre of mass rather than on the middle of their
-bounding box — otherwise one person in the Falklands drags the whole composition
-south over empty ocean.
+the pins, with equal air on every side. `exportMargin` in `config.js` controls
+how much: raise it to pull the camera further back, lower it to crop in.
 
 > **How the export works, and the one thing that could break it.** The image is
 > redrawn from scratch onto a canvas — tiles, arcs, dots, names, tethers —
@@ -222,6 +222,8 @@ Everything here is in [config.js](config.js):
   their own.
 - **`arcOrigin`** — where the arcs radiate from. Set it to `null` to remove the
   feature and its toggle entirely.
+- **`exportMargin`** — air around the pins in an exported image, as a fraction
+  of each side. `0.22` is the default; `0.30` pulls well back, `0.12` crops in.
 - **Extra question** — the `note` field is deliberately open-ended. Change its
   placeholder in `index.html` to whatever prompt suits the class: a favourite
   local spot, why they left, what they'd order for breakfast there.

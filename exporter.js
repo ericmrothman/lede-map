@@ -88,7 +88,14 @@ window.LedeMapExport = (function () {
   /* Pick centre and zoom that fit everything into the reference box. Leaflet's
      getBoundsZoom is tied to the live map's size, so this does it directly and
      keeps the fractional part: flooring to an integer zoom can waste up to half
-     the frame. Tiles come from the integer below and get scaled to suit. */
+     the frame. Tiles come from the integer below and get scaled to suit.
+
+     Centring is the part worth the trouble. The middle of a bounding box is the
+     midpoint of its two most extreme pins, so one person in the Falklands drags
+     the whole composition south over empty ocean. Aim at the centre of mass of
+     the pins instead, then pull that back only as far as it takes to keep every
+     pin inside the frame. The result sits on the landmass rather than on the
+     average of two outliers. */
   function frame(points, refW, refH, padding) {
     const map = app.map;
     const lats = points.map((p) => p[0]);
@@ -105,7 +112,28 @@ window.LedeMapExport = (function () {
 
     const fit = Math.min((refW - padding * 2) / w0, (refH - padding * 2) / h0);
     const zoom = Math.max(0, Math.min(18, Math.log2(fit)));
-    return { center: bounds.getCenter(), zoom };
+
+    const projected = points.map((p) => map.project(p, zoom));
+    const mean = projected.reduce(
+      (acc, p) => ({ x: acc.x + p.x / projected.length, y: acc.y + p.y / projected.length }),
+      { x: 0, y: 0 }
+    );
+
+    // How far the centre may sit from the extremes and still contain them.
+    const halfW = refW / 2 - padding;
+    const halfH = refH / 2 - padding;
+    const xs = projected.map((p) => p.x);
+    const ys = projected.map((p) => p.y);
+
+    const squeeze = (value, lo, hi, fallback) =>
+      (lo > hi ? fallback : Math.min(Math.max(value, lo), hi));
+
+    const cx = squeeze(mean.x, Math.max(...xs) - halfW, Math.min(...xs) + halfW,
+                       (Math.min(...xs) + Math.max(...xs)) / 2);
+    const cy = squeeze(mean.y, Math.max(...ys) - halfH, Math.min(...ys) + halfH,
+                       (Math.min(...ys) + Math.max(...ys)) / 2);
+
+    return { center: map.unproject([cx, cy], zoom), zoom };
   }
 
   /* --- Tiles ------------------------------------------------------------- */
@@ -212,12 +240,10 @@ window.LedeMapExport = (function () {
     opts.onProgress && opts.onProgress('Fetching tiles…');
     await drawTiles(g, view, refW, refH, theme.spec.base, opts.onProgress, 'Tiles');
 
-    if (theme.spec.names) {
-      g.save();
-      g.globalAlpha = 0.42;                // matches the live map's labels pane
-      await drawTiles(g, view, refW, refH, theme.spec.names, opts.onProgress, 'Place names');
-      g.restore();
-    }
+    /* Deliberately no place-name tiles. At export scale CARTO's continent and
+       country lettering is set enormous — it reads as the subject of the image
+       rather than as orientation, and it fights the people's names, which are
+       the actual subject. The land keeps its shape; only the shouting goes. */
 
     opts.onProgress && opts.onProgress('Drawing…');
 
@@ -254,7 +280,7 @@ window.LedeMapExport = (function () {
     }
 
     /* Labels, through the very same solver the live map runs. */
-    if (flags.names) {
+    {
       app.measureLabels();
       const placements = app.solveLabels({
         items: app.getLabelItems(),
@@ -311,9 +337,16 @@ window.LedeMapExport = (function () {
     g.translate(pl.x + w / 2, pl.y + h / 2);
     g.rotate((pl.tilt * Math.PI) / 180);
 
+    /* Shadow the card, then clear it before any text: a shadow left switched on
+       would be applied to every glyph as well and turn the lettering muddy. */
+    g.save();
+    g.shadowColor = colors.dark ? 'rgba(0,0,0,.45)' : 'rgba(16,18,22,.22)';
+    g.shadowBlur = 4;
+    g.shadowOffsetY = 1.5;
     g.fillStyle = colors.dark ? 'rgba(24,28,34,.88)' : 'rgba(255,255,255,.84)';
     roundRect(g, -w / 2, -h / 2, w, h, 7);
     g.fill();
+    g.restore();
 
     g.textAlign = 'center';
     g.textBaseline = 'middle';

@@ -138,9 +138,9 @@ rely on the live site being up in six months; rely on the CSV below.
 
 ---
 
-## Look, and saving the map as an image
+## The Export panel
 
-The **Look** button opens everything cosmetic.
+The **Export** button opens everything cosmetic, plus saving.
 
 **Themes** — Voyager (the default), Paper (pale, best for printing), Night (dark,
 best on a projector) and Ink (no place names at all, so only people's names
@@ -158,10 +158,13 @@ they are meant to be a texture, not a subject.
 size, made to be used as a desktop background. It renders from `@2x` tiles, so a
 4K export is sharp rather than an upscaled screenshot.
 
-The framing is deliberately loose rather than cropped tight to the pins: a tight
-fit reads as a diagram, while leaving air around them keeps the shape of the
-world in the picture. That margin is a fraction of the frame, so every size
-composes the same way.
+Two things the export does differently from the screen, both on purpose. It
+leaves the basemap's own place names off: at export scale CARTO sets continent
+and country lettering enormous, and it ends up reading as the subject of the
+image instead of the people. And it frames loose rather than cropping tight to
+the pins, centred on their centre of mass rather than on the middle of their
+bounding box — otherwise one person in the Falklands drags the whole composition
+south over empty ocean.
 
 > **How the export works, and the one thing that could break it.** The image is
 > redrawn from scratch onto a canvas — tiles, arcs, dots, names, tethers —

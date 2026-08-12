@@ -264,7 +264,6 @@
   let pendingMarker = null;
   let pins = [];
   let hasFitOnce = false;
-  let showNames = localStorage.getItem('wwf:names') !== 'off';
 
   /* Pins in the same place become one dot that grows with the crowd — the
      point of the artifact is seeing where people cluster. */
@@ -380,7 +379,6 @@
   function buildLabels(built) {
     for (const it of labelItems) it.el.remove();
     labelItems = [];
-    if (!showNames) return;
 
     for (const { group: g, marker } of built) {
       const { who, city } = labelParts(g);
@@ -671,12 +669,48 @@
     return pts;
   }
 
+  /* The great circle from New York to Tokyo runs west across the Pacific and
+     over the antimeridian, so greatCircle hands back longitudes past ±180.
+     Drawn as-is, that tail lands on the *next* copy of the world and the arc
+     appears to reach for a ghost Tokyo off the edge of the map.
+
+     Cut the path at the seam instead and bring each piece back into range, so
+     the line leaves one edge and arrives at the other, where the pin is. The
+     crossing latitude is interpolated in so the two pieces meet the edge at
+     the same height rather than leaving a notch. */
+  function splitAtSeam(points) {
+    const wrap = (x) => ((((x + 180) % 360) + 360) % 360) - 180;
+    const segments = [];
+    let current = [];
+    let prev = null, prevLat = null;
+
+    for (const [lat, lng] of points) {
+      const x = wrap(lng);
+      if (prev !== null && Math.abs(x - prev) > 180) {
+        const leaving = prev > 0 ? 180 : -180;
+        const arriving = -leaving;
+        const run = Math.abs(leaving - prev) + Math.abs(x - arriving);
+        const f = run ? Math.abs(leaving - prev) / run : 0.5;
+        const latSeam = prevLat + (lat - prevLat) * f;
+        current.push([latSeam, leaving]);
+        segments.push(current);
+        current = [[latSeam, arriving]];
+      }
+      current.push([lat, x]);
+      prev = x;
+      prevLat = lat;
+    }
+    if (current.length) segments.push(current);
+    return segments.filter((seg) => seg.length > 1);
+  }
+
+  /* Returns drawable segments, not whole arcs — one arc may be cut in two. */
   function arcPaths() {
     const origin = CFG.arcOrigin;
     if (!origin || !pins.length) return [];
     return groupPins(pins)
       .filter((g) => Math.abs(g.lat - origin.lat) > 0.01 || Math.abs(g.lng - origin.lng) > 0.01)
-      .map((g) => greatCircle(origin, g));
+      .flatMap((g) => splitAtSeam(greatCircle(origin, g)));
   }
 
   function drawArcs() {
@@ -707,14 +741,6 @@
         riseOnHover: true,
         bubblingMouseEvents: false,   // clicking a pin must not also drop a new one
       }).bindPopup(popupHtml(g), { closeButton: false, maxWidth: 260 });
-
-      // With labels on, a hover tooltip would only repeat what's already there.
-      if (!showNames) {
-        marker.bindTooltip(
-          n > 1 ? `${g.entries[0].label} · ${n}` : g.entries[0].label,
-          { direction: 'top', offset: [0, -dotRadius(n) - 2] }
-        );
-      }
 
       marker.addTo(pinLayer);
       built.push({ group: g, marker });
@@ -1100,7 +1126,6 @@
       b.classList.toggle('is-on', on);
       b.setAttribute('aria-checked', String(on));
     }
-    $('tg-names').checked = showNames;
     $('tg-arcs').checked = showArcs;
 
     const arcs = $('tg-arcs').closest('.toggle');
@@ -1110,17 +1135,11 @@
     }
   }
 
-  $('look-btn').addEventListener('click', () => {
+  $('export-open').addEventListener('click', () => {
     look.hidden = !look.hidden;
     if (!look.hidden) syncLookPanel();
   });
   $('look-close').addEventListener('click', () => { look.hidden = true; });
-
-  $('tg-names').addEventListener('change', (e) => {
-    showNames = e.target.checked;
-    localStorage.setItem('wwf:names', showNames ? 'on' : 'off');
-    render();
-  });
 
   $('tg-arcs').addEventListener('change', (e) => {
     showArcs = e.target.checked;
@@ -1233,7 +1252,7 @@
         accent: accentHex(),
         dark: themeName === 'night',
       }),
-      flags: () => ({ names: showNames, arcs: showArcs }),
+      flags: () => ({ arcs: showArcs }),
     });
   }
 

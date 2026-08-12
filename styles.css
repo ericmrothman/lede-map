@@ -330,8 +330,13 @@ html, body {
   pointer-events: none;
 }
 
-.label-arrows {
+/* Leaflet styles `.leaflet-pane > svg` at z-index 200 for its vector renderer,
+   and this SVG is now a direct child of a pane. Left alone it outranks the
+   labels' `auto` and the tethers draw across the names they belong to. Both
+   ends are pinned explicitly so the order can't be inherited out from under us. */
+.leaflet-pane > svg.label-arrows {
   position: absolute;
+  z-index: 0;
   overflow: visible;
   color: var(--accent);    /* the arrowhead inherits this */
   transition: opacity .18s ease;
@@ -358,6 +363,7 @@ html, body {
 
 .pin-label {
   position: absolute;
+  z-index: 1;              /* above the tether arrows — see .label-arrows */
   left: 0;
   top: 0;
   transform-origin: 50% 50%;

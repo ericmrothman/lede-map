@@ -92,8 +92,14 @@ Pins in the same place merge into one dot that grows with the number of people
 there, and the popup lists everyone. Five people from Chicago should *look* like
 five people from Chicago.
 
-Anyone can also close the search panel and click the map directly, which reverse
-geocodes the spot — useful for a village Nominatim has never heard of.
+Names sit beside their dot as a label, and clicking either the dot or the name
+opens the full entry. Labels are laid out against each other every time the view
+changes, so they never stack; one that has to travel to find room leans a little
+and keeps a curved arrow back to its own dot.
+
+While the panel is open you can also click the map directly instead of
+searching, which reverse geocodes the spot — useful for a village Nominatim has
+never heard of.
 
 ---
 

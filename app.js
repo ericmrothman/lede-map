@@ -196,7 +196,6 @@
     { subdomains: 'abcd', maxZoom: 18, pane: 'labels' }
   ).addTo(map);
 
-  const renderer = L.svg({ padding: 0.5 });
   const pinLayer = L.layerGroup().addTo(map);
   let pendingMarker = null;
   let pins = [];
@@ -271,6 +270,20 @@
 
   const dotRadius = (n) => 6 + Math.min(11, 3.2 * Math.sqrt(n - 1));
 
+  /* A dot as a marker rather than an SVG circle. Leaflet scales its vector
+     renderer through a zoom animation and snaps it back at the end, which is
+     the "popping"; markers are translated to their destination instead and
+     hold their size the whole way. */
+  function dotIcon(r, cls) {
+    const d = Math.round(r * 2);
+    return L.divIcon({
+      className: 'pin-marker',
+      html: `<span class="${cls}" style="width:${d}px;height:${d}px"></span>`,
+      iconSize: [d, d],
+      iconAnchor: [d / 2, d / 2],
+    });
+  }
+
   /* Stable value in [-1, 1] from a string — same label, same tilt, every load. */
   function seedOf(str) {
     let h = 0;
@@ -288,19 +301,40 @@
     return { who: shown.join(' & ') + (extra > 0 ? ` +${extra}` : ''), city };
   }
 
-  function buildLabels(groups) {
+  function buildLabels(built) {
     for (const it of labelItems) it.el.remove();
     labelItems = [];
     if (!showNames) return;
 
-    for (const g of groups) {
+    for (const { group: g, marker } of built) {
       const { who, city } = labelParts(g);
       if (!who && !city) continue;
       const el = document.createElement('div');
       el.className = 'pin-label';
+      el.setAttribute('role', 'button');
+      el.setAttribute('tabindex', '0');
       el.innerHTML =
         (who ? `<span class="pin-label-who">${esc(who)}</span>` : '') +
         (city ? `<span class="pin-label-city">${esc(city)}</span>` : '');
+
+      // The name is as much a target as the dot is. A label sits above the map
+      // and still passes drags through to it, so distinguish a real click from
+      // the end of a pan that happened to start on top of a name.
+      const open = (e) => { e.stopPropagation(); e.preventDefault(); marker.openPopup(); };
+      let downAt = null;
+      el.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+      el.addEventListener('click', (e) => {
+        if (downAt) {
+          const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
+          downAt = null;
+          if (moved > 4) return;
+        }
+        open(e);
+      });
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') open(e);
+      });
+
       labelLayer.appendChild(el);
       labelItems.push({
         el,
@@ -342,15 +376,23 @@
     return [cx + ux * t, cy + uy * t];
   }
 
-  function layoutLabels() {
+  /* Where a point will land once a pending zoom finishes. Public projection
+     only: the pixel origin of a view is project(center, zoom) - size / 2. */
+  function projectorFor(zoom, center) {
+    const origin = map.project(center, zoom).subtract(map.getSize().divideBy(2));
+    return (lat, lng) => map.project([lat, lng], zoom).subtract(origin);
+  }
+
+  function layoutLabels(project) {
     if (!labelItems.length) return;
+    const toPoint = project || ((lat, lng) => map.latLngToContainerPoint([lat, lng]));
 
     const size = map.getSize();
     arrowSvg.setAttribute('viewBox', `0 0 ${size.x} ${size.y}`);
     for (const old of arrowSvg.querySelectorAll('path.label-arrow')) old.remove();
 
     const items = labelItems.map((it) => {
-      const pt = map.latLngToContainerPoint([it.lat, it.lng]);
+      const pt = toPoint(it.lat, it.lng);
       if (!it.w) { it.w = it.el.offsetWidth; it.h = it.el.offsetHeight; }
       return Object.assign({}, it, { pt });
     });
@@ -427,18 +469,38 @@
     }
   }
 
-  map.on('move zoom viewreset resize', layoutLabels);
+  let zooming = false;
+  map.on('zoomstart', () => { zooming = true; });
+
+  /* Leaflet announces where a zoom is heading before it animates there. Laying
+     the labels out for that destination now, with a transition matching
+     Leaflet's own, makes them travel with the map rather than appear after it.
+     Arrow paths can't be tweened the same way, so they cross-fade instead. */
+  map.on('zoomanim', (e) => {
+    labelLayer.classList.add('zooming');
+    layoutLabels(projectorFor(e.zoom, e.center));
+  });
+
+  map.on('zoomend', () => {
+    zooming = false;
+    labelLayer.classList.remove('zooming');
+    layoutLabels();
+  });
+
+  map.on('move viewreset resize', () => { if (!zooming) layoutLabels(); });
 
   function render() {
     pinLayer.clearLayers();
     const groups = groupPins(pins);
 
+    const built = [];
+
     for (const g of groups) {
       const n = g.entries.length;
-      const marker = L.circleMarker([g.lat, g.lng], {
-        radius: dotRadius(n),
-        className: 'pin-dot',
-        renderer,
+      const marker = L.marker([g.lat, g.lng], {
+        icon: dotIcon(dotRadius(n), 'pin-dot'),
+        keyboard: false,
+        riseOnHover: true,
         bubblingMouseEvents: false,   // clicking a pin must not also drop a new one
       }).bindPopup(popupHtml(g), { closeButton: false, maxWidth: 260 });
 
@@ -451,9 +513,10 @@
       }
 
       marker.addTo(pinLayer);
+      built.push({ group: g, marker });
     }
 
-    buildLabels(groups);
+    buildLabels(built);
     layoutLabels();
     updateTally(groups);
 
@@ -613,8 +676,8 @@
     clearError();
 
     clearPending();
-    pendingMarker = L.circleMarker([place.lat, place.lng], {
-      radius: 9, className: 'pin-pending', renderer, bubblingMouseEvents: false,
+    pendingMarker = L.marker([place.lat, place.lng], {
+      icon: dotIcon(9, 'pin-pending'), keyboard: false, interactive: false,
     }).addTo(map);
 
     map.flyTo([place.lat, place.lng], Math.max(map.getZoom(), 5), { duration: 0.9 });

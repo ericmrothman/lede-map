@@ -633,7 +633,9 @@
   let showArcs = localStorage.getItem('wwf:arcs') === 'on';
 
   /* Interpolated along the sphere, not the screen, so the line to Seoul bows
-     the way a flight path does instead of cutting flat across the plate. */
+     the way a flight path does instead of cutting flat across the plate.
+     Longitudes come back unwrapped — a path from New York to Tokyo runs west
+     over the Pacific and keeps counting past -180 rather than snapping back. */
   function greatCircle(from, to, steps) {
     steps = steps || 48;
     const rad = (d) => (d * Math.PI) / 180;
@@ -657,8 +659,6 @@
       const z = A * Math.sin(la1) + B * Math.sin(la2);
 
       let lng = deg(Math.atan2(y, x));
-      /* Unwrap past ±180 rather than letting the path snap back across the
-         whole world, which is what a raw atan2 gives you over the Pacific. */
       if (prev !== null) {
         while (lng - prev > 180) lng -= 360;
         while (prev - lng > 180) lng += 360;
@@ -669,48 +669,27 @@
     return pts;
   }
 
-  /* The great circle from New York to Tokyo runs west across the Pacific and
-     over the antimeridian, so greatCircle hands back longitudes past ±180.
-     Drawn as-is, that tail lands on the *next* copy of the world and the arc
-     appears to reach for a ghost Tokyo off the edge of the map.
+  /* The map repeats: pan east and the same continents come round again, because
+     the basemap draws a copy of the world either side of the one you started on.
+     The arcs get the same treatment — each path is emitted once per copy, offset
+     a full turn of the world.
 
-     Cut the path at the seam instead and bring each piece back into range, so
-     the line leaves one edge and arrives at the other, where the pin is. The
-     crossing latitude is interpolated in so the two pieces meet the edge at
-     the same height rather than leaving a notch. */
-  function splitAtSeam(points) {
-    const wrap = (x) => ((((x + 180) % 360) + 360) % 360) - 180;
-    const segments = [];
-    let current = [];
-    let prev = null, prevLat = null;
+     That is what makes a line to Tokyo behave. Its true course leaves the left
+     edge heading west; the copy one world over is already drawn arriving from
+     the right edge and landing on the pin. Nothing is cut, nothing is redrawn
+     the long way round, and nothing runs off into empty space — the arcs wrap
+     exactly the way the ground underneath them does. */
+  const WORLD_COPIES = [-360, 0, 360];
 
-    for (const [lat, lng] of points) {
-      const x = wrap(lng);
-      if (prev !== null && Math.abs(x - prev) > 180) {
-        const leaving = prev > 0 ? 180 : -180;
-        const arriving = -leaving;
-        const run = Math.abs(leaving - prev) + Math.abs(x - arriving);
-        const f = run ? Math.abs(leaving - prev) / run : 0.5;
-        const latSeam = prevLat + (lat - prevLat) * f;
-        current.push([latSeam, leaving]);
-        segments.push(current);
-        current = [[latSeam, arriving]];
-      }
-      current.push([lat, x]);
-      prev = x;
-      prevLat = lat;
-    }
-    if (current.length) segments.push(current);
-    return segments.filter((seg) => seg.length > 1);
-  }
-
-  /* Returns drawable segments, not whole arcs — one arc may be cut in two. */
   function arcPaths() {
     const origin = CFG.arcOrigin;
     if (!origin || !pins.length) return [];
     return groupPins(pins)
       .filter((g) => Math.abs(g.lat - origin.lat) > 0.01 || Math.abs(g.lng - origin.lng) > 0.01)
-      .flatMap((g) => splitAtSeam(greatCircle(origin, g)));
+      .flatMap((g) => {
+        const path = greatCircle(origin, g);
+        return WORLD_COPIES.map((shift) => path.map(([lat, lng]) => [lat, lng + shift]));
+      });
   }
 
   function drawArcs() {

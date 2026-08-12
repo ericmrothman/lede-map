@@ -154,6 +154,11 @@ interpolated along the sphere so the line to Seoul bows the way a flight path
 does. They sit in a pane below the dots and the names and are off by default;
 they are meant to be a texture, not a subject.
 
+They wrap the way the map does. A course to Tokyo runs west across the Pacific
+and over the antimeridian, so each arc is drawn once per copy of the world —
+the line leaves one edge and the copy alongside is already arriving at the
+other, landing on the pin.
+
 **Save as image** — writes a PNG at 1920×1080, 2560×1440, 4K, or your own screen
 size, made to be used as a desktop background. It renders from `@2x` tiles, so a
 4K export is sharp rather than an upscaled screenshot.

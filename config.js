@@ -29,4 +29,5 @@ window.MAP_CONFIG = {
   /* Where the connection arcs radiate from — Pulitzer Hall, Columbia. Set to
      null to drop the arcs feature entirely. */
   arcOrigin: { lat: 40.8075, lng: -73.9626, label: 'Pulitzer Hall' },
+
 };

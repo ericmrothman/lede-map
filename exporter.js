@@ -355,7 +355,6 @@ window.LedeMapExport = (function () {
       }
     }
 
-    drawCredit(g, refW, refH, inkFaint);
 
     return canvas;
   }
@@ -410,16 +409,6 @@ window.LedeMapExport = (function () {
       g.fillText(city, 0, 0);
     }
 
-    g.restore();
-  }
-
-  function drawCredit(g, refW, refH, faint) {
-    g.save();
-    g.textAlign = 'right';
-    g.textBaseline = 'alphabetic';
-    g.fillStyle = faint;
-    g.font = `400 10px ${SANS}`;
-    g.fillText('© OpenStreetMap contributors · Basemap CARTO', refW - 14, refH - 12);
     g.restore();
   }
 

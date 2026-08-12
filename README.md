@@ -184,6 +184,11 @@ If someone lives far enough south that the frame would cut them off, it nudges
 down to keep them in. A preference about centring should never cost you a
 classmate.
 
+> **Attribution.** The exported image carries no credit line — the site still
+> credits OpenStreetMap and CARTO in its footer. OpenStreetMap data is ODbL and
+> CARTO's basemap terms ask for a credit, so if you publish an export rather
+> than keeping it as a wallpaper, add one alongside it.
+
 > **How the export works, and the one thing that could break it.** The image is
 > redrawn from scratch onto a canvas — tiles, arcs, dots, names, tethers —
 > rather than screenshotting the page, and it runs the *same* label solver the

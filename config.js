@@ -29,12 +29,4 @@ window.MAP_CONFIG = {
   /* Where the connection arcs radiate from — Pulitzer Hall, Columbia. Set to
      null to drop the arcs feature entirely. */
   arcOrigin: { lat: 40.8075, lng: -73.9626, label: 'Pulitzer Hall' },
-
-  /* The ribbon text. Runs along a curve across the map like the cartouche on
-     an old chart. Keep the entries short — they read as a single flowing line. */
-  subjects: [
-    'python', 'pandas', 'scraping', 'R', 'undocumented APIs',
-    'AI classification', 'satellite imagery', 'QGIS', 'd3', 'JavaScript',
-    'scrollytelling', 'the terminal', 'geopandas', 'games', 'browser automation',
-  ],
 };

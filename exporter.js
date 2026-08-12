@@ -25,6 +25,7 @@ window.LedeMapExport = (function () {
   const REF_WIDTH = 1600;
   const TILE = 256;
   const MAX_TILES = 600;          // a mis-framed view must not fetch thousands
+  const MARGIN = 0.15;            // air around the pins, as a fraction of width
   const SERIF = '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif';
   const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif';
 
@@ -81,14 +82,6 @@ window.LedeMapExport = (function () {
       x += widths[i];
     }
   }
-
-  const bezierAt = (c, t) => {
-    const u = 1 - t;
-    return [
-      u * u * u * c[0] + 3 * u * u * t * c[2] + 3 * u * t * t * c[4] + t * t * t * c[6],
-      u * u * u * c[1] + 3 * u * u * t * c[3] + 3 * u * t * t * c[5] + t * t * t * c[7],
-    ];
-  };
 
   /* --- Framing ----------------------------------------------------------- */
 
@@ -181,7 +174,6 @@ window.LedeMapExport = (function () {
     const pins = app.getPins();
     if (!pins.length) throw new Error('No pins to export yet.');
 
-    const poster = opts.style === 'poster';
     const scale = opts.width / REF_WIDTH;
     const refW = REF_WIDTH;
     const refH = Math.round(opts.height / scale);
@@ -192,29 +184,29 @@ window.LedeMapExport = (function () {
     g.scale(scale, scale);                 // everything below is in reference units
 
     const ink = token('--ink');
-    const inkSoft = token('--ink-soft');
     const inkFaint = token('--ink-faint');
-    const paper = token('--paper');
     const accent = theme.accent;
 
     g.fillStyle = token('--paper-warm');
     g.fillRect(0, 0, refW, refH);
 
-    // Leave room for the poster's title band so pins never sit under it.
-    const padTop = poster ? 132 : 70;
     const groups = app.groupPins(pins);
     const seeds = groups.map((gr) => [gr.lat, gr.lng]);
     if (flags.arcs && app.cfg.arcOrigin) {
       seeds.push([app.cfg.arcOrigin.lat, app.cfg.arcOrigin.lng]);
     }
-    // Generous padding: a dot inside the frame can still carry a name that
-    // isn't, and the solver's frame test can only choose among spots that fit.
-    const view = frame(seeds, refW, refH - (padTop - 70), 132);
+    /* Framed loose on purpose. A tight fit crops in to the pins and the result
+       reads as a diagram; leaving this much air around them keeps the shape of
+       the world in the picture, which is the point of the thing. It also gives
+       every name somewhere to sit — a dot inside the frame can still carry a
+       label that isn't, and the solver may only choose among spots that fit.
+       The margin is a fraction of the frame, so every preset composes alike. */
+    const view = frame(seeds, refW, refH, Math.round(refW * MARGIN));
 
     const originRef = map.project(view.center, view.zoom).subtract([refW / 2, refH / 2]);
     const toPoint = (lat, lng) => {
       const p = map.project([lat, lng], view.zoom);
-      return { x: p.x - originRef.x, y: p.y - originRef.y + (padTop - 70) / 2 };
+      return { x: p.x - originRef.x, y: p.y - originRef.y };
     };
 
     opts.onProgress && opts.onProgress('Fetching tiles…');
@@ -246,31 +238,6 @@ window.LedeMapExport = (function () {
       g.restore();
     }
 
-    /* The ribbon reads as part of the composition, so it belongs on both
-       styles — but only the poster is busy enough to carry it by default. */
-    const ribbonOn = flags.ribbon || poster;
-    const curve = app.ribbonCurve(refW, refH);
-
-    if (ribbonOn) {
-      g.save();
-      g.strokeStyle = paper;
-      g.globalAlpha = 0.62;
-      g.lineWidth = 26;
-      g.lineCap = 'round';
-      g.beginPath();
-      g.moveTo(curve[0], curve[1]);
-      g.bezierCurveTo(curve[2], curve[3], curve[4], curve[5], curve[6], curve[7]);
-      g.stroke();
-      g.restore();
-
-      g.save();
-      g.fillStyle = inkSoft;
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      fitTextOnCurve(g, app.ribbonText(), curve);
-      g.restore();
-    }
-
     /* Dots. */
     for (const gr of groups) {
       const p = toPoint(gr.lat, gr.lng);
@@ -289,7 +256,6 @@ window.LedeMapExport = (function () {
     /* Labels, through the very same solver the live map runs. */
     if (flags.names) {
       app.measureLabels();
-      const reserved = ribbonOn ? ribbonBoxes(curve, refW) : [];
       const placements = app.solveLabels({
         items: app.getLabelItems(),
         toPoint: (lat, lng) => toPoint(lat, lng),
@@ -297,7 +263,6 @@ window.LedeMapExport = (function () {
         height: refH,
         margin: 40,
         bounds: 10,        // nothing may bleed off the edge of an image
-        reserved,
       });
 
       // Arrows first: a tether belongs behind the name it points at.
@@ -318,11 +283,10 @@ window.LedeMapExport = (function () {
       g.restore();
 
       for (const pl of placements) {
-        if (!pl.hidden) drawLabel(g, pl, { ink, inkFaint, paper, dark: theme.dark });
+        if (!pl.hidden) drawLabel(g, pl, { ink, inkFaint, dark: theme.dark });
       }
     }
 
-    if (poster) drawPosterChrome(g, refW, refH, groups, pins, { ink, inkSoft, inkFaint });
     drawCredit(g, refW, refH, inkFaint);
 
     return canvas;
@@ -371,111 +335,6 @@ window.LedeMapExport = (function () {
       g.fillText(city, 0, 0);
     }
 
-    g.restore();
-  }
-
-  /* Walk the curve by arc length, setting each character on the local tangent. */
-  function curveTable(curve, steps) {
-    const table = [];
-    let prev = bezierAt(curve, 0);
-    let len = 0;
-    table.push({ len: 0, p: prev });
-    for (let i = 1; i <= steps; i++) {
-      const p = bezierAt(curve, i / steps);
-      len += Math.hypot(p[0] - prev[0], p[1] - prev[1]);
-      table.push({ len, p });
-      prev = p;
-    }
-    return table;
-  }
-
-  function atLength(table, target) {
-    let lo = 0, hi = table.length - 1;
-    while (lo < hi - 1) {
-      const mid = (lo + hi) >> 1;
-      if (table[mid].len < target) lo = mid; else hi = mid;
-    }
-    const a = table[lo], b = table[hi];
-    const f = b.len === a.len ? 0 : (target - a.len) / (b.len - a.len);
-    return {
-      x: a.p[0] + (b.p[0] - a.p[0]) * f,
-      y: a.p[1] + (b.p[1] - a.p[1]) * f,
-      angle: Math.atan2(b.p[1] - a.p[1], b.p[0] - a.p[0]),
-    };
-  }
-
-  /* Same rule as the live ribbon: start at 15px, shrink until the lettering
-     fits the curve, so the tail never runs off the end of the band. */
-  function fitTextOnCurve(g, text, curve) {
-    const table = curveTable(curve, 500);
-    const room = table[table.length - 1].len * 0.94;
-
-    let size = 15;
-    const spacingFor = (px) => px * 0.16;   // matches the .16em in the stylesheet
-    const widthAt = (px) => {
-      g.font = `italic ${px}px ${SERIF}`;
-      return Array.from(text)
-        .reduce((sum, ch) => sum + g.measureText(ch).width + spacingFor(px), 0);
-    };
-
-    const natural = widthAt(size);
-    if (natural > room && room > 0) size = Math.max(7, size * (room / natural));
-    g.font = `italic ${size}px ${SERIF}`;
-    textOnCurve(g, text, table, spacingFor(size));
-  }
-
-  function textOnCurve(g, text, table, spacing) {
-    const total = table[table.length - 1].len;
-    const chars = Array.from(text);
-    const widths = chars.map((ch) => g.measureText(ch).width + spacing);
-    const textW = widths.reduce((a, b) => a + b, 0);
-
-    let d = (total - textW) / 2;
-    if (d < 0) d = 0;
-
-    for (let i = 0; i < chars.length; i++) {
-      const at = d + widths[i] / 2;
-      if (at > total) break;
-      const s = atLength(table, at);
-      g.save();
-      g.translate(s.x, s.y);
-      g.rotate(s.angle);
-      g.fillText(chars[i], 0, 0);
-      g.restore();
-      d += widths[i];
-    }
-  }
-
-  function ribbonBoxes(curve, refW) {
-    const boxes = [];
-    const half = 20;
-    for (let i = 0; i <= 14; i++) {
-      const [x, y] = bezierAt(curve, i / 14);
-      boxes.push({ x: x - refW / 28, y: y - half, w: refW / 14, h: half * 2 });
-    }
-    return boxes;
-  }
-
-  function drawPosterChrome(g, refW, refH, groups, pins, colors) {
-    const places = groups.length;
-    const people = pins.length;
-    const when = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-
-    g.save();
-    g.textAlign = 'left';
-    g.textBaseline = 'alphabetic';
-
-    g.fillStyle = colors.ink;
-    g.font = `600 44px ${SERIF}`;
-    g.fillText(app.cfg.title || 'World Map', 56, 84);
-
-    g.fillStyle = colors.inkSoft;
-    g.font = `400 15px ${SANS}`;
-    g.fillText(
-      `${people} ${people === 1 ? 'person' : 'people'} · ` +
-      `${places} ${places === 1 ? 'place' : 'places'} · ${when}`,
-      58, 108
-    );
     g.restore();
   }
 

@@ -629,27 +629,6 @@ html, body {
 }
 .toggle input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 
-.seg {
-  display: flex;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-  margin-bottom: 8px;
-}
-.seg-btn {
-  flex: 1;
-  font: inherit;
-  font-size: 13px;
-  padding: 7px 0;
-  background: none;
-  border: 0;
-  border-right: 1px solid var(--line);
-  color: var(--ink-soft);
-  cursor: pointer;
-}
-.seg-btn:last-child { border-right: 0; }
-.seg-btn.is-on { background: var(--accent); color: #fff; }
-
 .select {
   width: 100%;
   font: inherit;
@@ -663,33 +642,6 @@ html, body {
 }
 
 #export-status:empty { display: none; }
-
-/* --- Subject ribbon ------------------------------------------------------- */
-
-.ribbon {
-  position: absolute;
-  left: 0;
-  top: 0;
-  overflow: visible;
-  pointer-events: none;
-}
-
-/* The band sits under the lettering, the way a painted banner would. */
-.ribbon-band {
-  fill: none;
-  stroke: var(--paper);
-  stroke-width: 26;
-  stroke-linecap: round;
-  opacity: .62;
-}
-
-.ribbon-text {
-  font-family: var(--serif);
-  font-size: 15px;
-  font-style: italic;
-  letter-spacing: .16em;
-  fill: var(--ink-soft);
-}
 
 /* --- Mobile ------------------------------------------------------------- */
 

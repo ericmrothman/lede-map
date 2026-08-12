@@ -467,11 +467,7 @@
 
      Both the live map and the image exporter call this one solver. That is the
      only reason an exported wallpaper is the same picture as the screen —
-     duplicating the placement maths would guarantee the two drift apart.
-
-     `reserved` is extra furniture to route around. The subject ribbon hands in
-     its own footprint and the names dodge it without the solver ever knowing
-     what it is. */
+     duplicating the placement maths would guarantee the two drift apart. */
   function solveLabels(opts) {
     const toScreen = opts.toScreen || ((pt) => pt);
     const W = opts.width, H = opts.height;
@@ -493,8 +489,7 @@
       .map((it) => ({
         x: it.pt.x - it.radius, y: it.pt.y - it.radius,
         w: it.radius * 2, h: it.radius * 2,
-      }))
-      .concat(opts.reserved || []);
+      }));
 
     items.sort((a, b) => a.pt.y - b.pt.y);
     const out = [];
@@ -603,7 +598,6 @@
       toScreen: (pt) => map.layerPointToContainerPoint(pt),
       width: size.x,
       height: size.y,
-      reserved: ribbonFootprint(),
     }));
   }
 
@@ -628,10 +622,6 @@
   // The pane pans with the map, so a relayout mid-drag is only needed to bring
   // newly-visible labels in — cheaper and steadier to do it when the pan lands.
   map.on('moveend viewreset resize', () => { if (!zooming) layoutLabels(); });
-
-  // The cartouche is pinned to the sheet, so it has to be un-panned every frame.
-  map.on('move', placeRibbon);
-  map.on('resize', renderRibbon);
 
   /* --- Connection arcs --------------------------------------------------- */
   /* Every pin tethered back to where the class actually met. Kept in its own
@@ -701,105 +691,6 @@
         interactive: false,
       }).addTo(arcLayer);
     }
-  }
-
-  /* --- Subject ribbon ---------------------------------------------------- */
-  /* A cartouche, in the spirit of the lettered banner on an old chart: the
-     things this class learned, running along a curve.
-
-     It is anchored to the screen rather than to coordinates — a cartouche
-     belongs to the sheet, not to the territory — so it holds still while you
-     pan. That also lets its footprint be handed to the label solver, which
-     makes every name route around it without knowing what it is. */
-
-  map.createPane('ribbon').style.zIndex = 500;   // over the arcs, under the dots
-  map.getPane('ribbon').style.pointerEvents = 'none';
-
-  const RIBBON_ID = 'ribbon-curve';
-  const ribbonSvg = document.createElementNS(SVGNS, 'svg');
-  ribbonSvg.setAttribute('class', 'ribbon');
-  ribbonSvg.innerHTML =
-    `<defs><path id="${RIBBON_ID}" fill="none"></path></defs>` +
-    `<use href="#${RIBBON_ID}" class="ribbon-band"></use>` +
-    `<text class="ribbon-text" dy="0.35em">` +
-    `<textPath href="#${RIBBON_ID}" startOffset="50%" text-anchor="middle"></textPath></text>`;
-  map.getPane('ribbon').appendChild(ribbonSvg);
-
-  let showRibbon = localStorage.getItem('wwf:ribbon') === 'on';
-
-  const ribbonText = () => (CFG.subjects || []).join('   ·   ');
-
-  const RIBBON_FONT = 15;    // starting size, before the fit-to-curve shrink
-  const RIBBON_FILL = 0.94;  // fraction of the curve the lettering may occupy
-
-  /* One gentle S across the lower third, in viewport units so it reflows on
-     resize and the exporter can reproduce it at any output size. */
-  function ribbonCurve(w, h) {
-    const y = h * 0.80;
-    return [
-      w * 0.04, y - h * 0.045,
-      w * 0.33, y + h * 0.065,
-      w * 0.67, y - h * 0.085,
-      w * 0.96, y + h * 0.015,
-    ];
-  }
-
-  function ribbonPathD(w, h) {
-    const c = ribbonCurve(w, h);
-    return `M ${c[0]} ${c[1]} C ${c[2]} ${c[3]}, ${c[4]} ${c[5]}, ${c[6]} ${c[7]}`;
-  }
-
-  function bezierAt(c, t) {
-    const u = 1 - t;
-    return [
-      u * u * u * c[0] + 3 * u * u * t * c[2] + 3 * u * t * t * c[4] + t * t * t * c[6],
-      u * u * u * c[1] + 3 * u * u * t * c[3] + 3 * u * t * t * c[5] + t * t * t * c[7],
-    ];
-  }
-
-  function renderRibbon() {
-    ribbonSvg.style.display = showRibbon ? '' : 'none';
-    if (!showRibbon) return;
-    const size = map.getSize();
-    ribbonSvg.setAttribute('width', size.x);
-    ribbonSvg.setAttribute('height', size.y);
-    const path = ribbonSvg.querySelector('defs path');
-    path.setAttribute('d', ribbonPathD(size.x, size.y));
-    ribbonSvg.querySelector('textPath').textContent = ribbonText();
-
-    /* Shrink to fit rather than letting the tail run off the end of the band.
-       The exporter applies the same rule against the same fraction. */
-    const text = ribbonSvg.querySelector('.ribbon-text');
-    text.style.fontSize = `${RIBBON_FONT}px`;
-    const room = path.getTotalLength() * RIBBON_FILL;
-    const natural = text.getComputedTextLength ? text.getComputedTextLength() : 0;
-    if (natural > room && room > 0) {
-      text.style.fontSize = `${Math.max(7, RIBBON_FONT * (room / natural))}px`;
-    }
-
-    placeRibbon();
-  }
-
-  /* The pane pans with the map; a cartouche should not. Cancel the offset. */
-  function placeRibbon() {
-    if (!showRibbon) return;
-    const off = map.containerPointToLayerPoint([0, 0]);
-    ribbonSvg.style.transform = `translate(${off.x}px, ${off.y}px)`;
-  }
-
-  /* Boxes strung along the curve, for the label solver to treat as occupied. */
-  function ribbonFootprint() {
-    if (!showRibbon) return [];
-    const size = map.getSize();
-    const c = ribbonCurve(size.x, size.y);
-    const half = 20;
-    const boxes = [];
-    for (let i = 0; i <= 14; i++) {
-      const [x, y] = bezierAt(c, i / 14);
-      const lp = map.containerPointToLayerPoint([x, y]);
-      boxes.push({ x: lp.x - size.x / 28, y: lp.y - half, w: size.x / 14, h: half * 2 });
-    }
-    return boxes;
   }
 
   function render() {
@@ -1167,7 +1058,6 @@
   /* --- Look panel -------------------------------------------------------- */
 
   const look = $('look');
-  let exportStyle = 'clean';
 
   function buildSwatches() {
     const themes = $('theme-row');
@@ -1212,7 +1102,6 @@
     }
     $('tg-names').checked = showNames;
     $('tg-arcs').checked = showArcs;
-    $('tg-ribbon').checked = showRibbon;
 
     const arcs = $('tg-arcs').closest('.toggle');
     if (arcs) arcs.hidden = !CFG.arcOrigin;
@@ -1239,23 +1128,6 @@
     drawArcs();
   });
 
-  $('tg-ribbon').addEventListener('change', (e) => {
-    showRibbon = e.target.checked;
-    localStorage.setItem('wwf:ribbon', showRibbon ? 'on' : 'off');
-    renderRibbon();
-    layoutLabels();          // names must re-route around (or back into) the band
-  });
-
-  for (const [id, mode] of [['ex-clean', 'clean'], ['ex-poster', 'poster']]) {
-    $(id).addEventListener('click', () => {
-      exportStyle = mode;
-      $('ex-clean').classList.toggle('is-on', mode === 'clean');
-      $('ex-poster').classList.toggle('is-on', mode === 'poster');
-      $('ex-clean').setAttribute('aria-checked', String(mode === 'clean'));
-      $('ex-poster').setAttribute('aria-checked', String(mode === 'poster'));
-    });
-  }
-
   $('export-btn').addEventListener('click', async () => {
     const btn = $('export-btn');
     const status = $('export-status');
@@ -1273,7 +1145,7 @@
     btn.disabled = true;
     try {
       await window.LedeMapExport.download({
-        width: w, height: h, style: exportStyle,
+        width: w, height: h,
         onProgress: (msg) => { status.textContent = msg; },
       });
       status.textContent = `Saved ${w} × ${h}.`;
@@ -1312,22 +1184,6 @@
     if (e.key === 'Escape' && !panel.hidden) closePanel();
   });
 
-  $('share-btn').addEventListener('click', async () => {
-    /* Carry the current look in the link. Opening it doesn't overwrite what the
-       recipient already chose for themselves — see readLook — it just decides
-       how the map looks on arrival, which is what you want when projecting. */
-    const base = location.href.split('#')[0];
-    const url = `${base}#t=${themeName}&a=${accentName}`;
-    try {
-      if (navigator.share && matchMedia('(pointer: coarse)').matches) {
-        await navigator.share({ title: CFG.title, url });
-      } else {
-        await navigator.clipboard.writeText(url);
-        toast('Link copied. Send it to the class.');
-      }
-    } catch { toast(url, 6000); }
-  });
-
   document.querySelector('.setup-dismiss').addEventListener('click', () => {
     $('setup-notice').hidden = true;
   });
@@ -1355,7 +1211,6 @@
 
   const initialLook = readLook();
   applyTheme(initialLook.theme, initialLook.accent, { quiet: true });
-  renderRibbon();
   syncLookPanel();
 
   /* Hand the exporter everything it needs to redraw this map onto a canvas.
@@ -1369,8 +1224,6 @@
       solveLabels,
       measureLabels,
       arcPaths,
-      ribbonCurve,
-      ribbonText,
       labelParts,
       getPins: () => pins,
       getLabelItems: () => labelItems,
@@ -1380,7 +1233,7 @@
         accent: accentHex(),
         dark: themeName === 'night',
       }),
-      flags: () => ({ names: showNames, arcs: showArcs, ribbon: showRibbon }),
+      flags: () => ({ names: showNames, arcs: showArcs }),
     });
   }
 

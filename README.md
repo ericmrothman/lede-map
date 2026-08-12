@@ -37,10 +37,11 @@ window.MAP_CONFIG = {
 
 > **Is it okay that the key is public?** Yes — that is what the anon key is for.
 > It identifies the project, not a person. Everything it's permitted to do is
-> defined by the policies you just ran: read pins, add a pin, delete only a pin
-> whose secret token you hold. It cannot edit entries, cannot read the secret
-> column, and cannot touch anything else. Keep the **`service_role`** key out of
-> this repo — that one really is a master key.
+> defined by the policies you just ran: read pins, add a pin, and edit or delete
+> only a pin whose secret token you hold. It cannot touch anyone else's entry,
+> cannot read the secret column, and cannot reach anything else in the database.
+> Keep the **`service_role`** key out of this repo — that one really is a master
+> key.
 
 ### 3. Publish
 

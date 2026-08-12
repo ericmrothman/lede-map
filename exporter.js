@@ -73,15 +73,24 @@ window.LedeMapExport = (function () {
     g.closePath();
   }
 
-  /* Canvas letterSpacing is not universal yet, so space by hand. */
+  /* Canvas letterSpacing is not universal yet, so space by hand.
+
+     This walks a cursor left to right, which only works under left alignment.
+     Callers draw labels with textAlign 'center', and under that every glyph is
+     re-centred on its own advance position — the line comes out shuffled, wide
+     letters overlapping their neighbours. Force the alignment for the duration
+     rather than relying on the caller to have set it. */
   function drawTracked(g, text, cx, cy, spacing) {
     const chars = Array.from(text);
     const widths = chars.map((ch) => g.measureText(ch).width + spacing);
+    const previous = g.textAlign;
+    g.textAlign = 'left';
     let x = cx - (widths.reduce((a, b) => a + b, 0) - spacing) / 2;
     for (let i = 0; i < chars.length; i++) {
       g.fillText(chars[i], x, cy);
       x += widths[i];
     }
+    g.textAlign = previous;
   }
 
   /* --- Framing ----------------------------------------------------------- */

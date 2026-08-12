@@ -154,11 +154,16 @@ interpolated along the sphere so the line to Seoul bows the way a flight path
 does. They sit in a pane below the dots and the names and are off by default;
 they are meant to be a texture, not a subject.
 
-A course to Tokyo runs west across the Pacific and over the antimeridian, so it
-has to be cut where it leaves the map. Rather than stopping dead against an
-invisible wall, each arc breaks up as it approaches: the stroke turns from solid
-to dashed, and the dashes shorten and draw further apart until there is nothing
-left. A line trailing off, rather than one someone turned the lights down on.
+An arc runs out of map at two edges. Sideways it meets the antimeridian — a
+course to Tokyo runs west across the Pacific and over it. Upwards it meets the
+top of the projection, which arrives sooner than you would expect: the route to
+Singapore is very nearly polar and peaks at 87.5°N, past the 85° where Web
+Mercator stops.
+
+Rather than stop dead at either, an arc breaks up as it approaches: the stroke
+turns from solid to dashed, and the dashes shorten and draw further apart until
+there is nothing left. A line trailing off the edge of the sheet, rather than
+one flattened against it.
 
 **Save as image** — writes a PNG at 1920×1080, 2560×1440, 4K, or your own screen
 size, made to be used as a desktop background. It renders from `@2x` tiles, so a

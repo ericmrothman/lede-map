@@ -664,7 +664,10 @@
         while (prev - lng > 180) lng += 360;
       }
       prev = lng;
-      pts.push([deg(Math.atan2(z, Math.hypot(x, y))), lng]);
+      // Clamp only for safety: anything up here has already faded out, and a
+      // latitude past Mercator's limit projects to nonsense.
+      const lat = deg(Math.atan2(z, Math.hypot(x, y)));
+      pts.push([Math.max(-84.9, Math.min(84.9, lat)), lng]);
     }
     return pts;
   }
@@ -678,10 +681,26 @@
      The two halves are returned as runs of near-constant opacity, which keeps
      the count of drawn paths sane — a long stretch far from the seam is one run
      at full strength, and only the fading tail is finely divided. */
-  const SEAM_FADE = 44;      // degrees of longitude over which an arc dissolves
+  const SEAM_FADE = 30;      // degrees of longitude over which an arc dissolves
+  const ROOF_LAT = 84;       // Mercator gives out a shade past here
+  const ROOF_FADE = 15;      // degrees of latitude over which an arc dissolves
   const ARC_ALPHA = 0.30;
 
-  const fadeAt = (lng) => Math.max(0, Math.min(1, (180 - Math.abs(lng)) / SEAM_FADE));
+  /* An arc runs out of map at two edges, not one. Sideways it meets the
+     antimeridian; upwards it meets the top of the projection, which arrives
+     sooner than you would think — the great circle from Pulitzer Hall to
+     Singapore is very nearly a polar route and peaks at 87.5°N, past the 85°
+     where Web Mercator stops. Left alone it flattened itself against the roof
+     of the picture.
+
+     Flattening the curve to fit was tried and looked worse: bending a shape
+     that was right to avoid an edge, rather than admitting the edge. So the
+     same treatment applies at both — the line breaks up and trails off the top
+     of the sheet exactly as it does off the side. */
+  const fadeAt = (lat, lng) => Math.min(
+    Math.max(0, Math.min(1, (180 - Math.abs(lng)) / SEAM_FADE)),
+    Math.max(0, Math.min(1, (ROOF_LAT - Math.abs(lat)) / ROOF_FADE))
+  );
 
   /* An arc doesn't dim into the seam, it breaks up. Approaching the edge the
      stroke turns from solid to dashed, and the dashes shorten and draw further
@@ -725,7 +744,7 @@
     let alpha = null;
 
     for (const p of points) {
-      const a = fadeAt(p[1]);
+      const a = fadeAt(p[0], p[1]);
       if (alpha === null) { alpha = a; pts = [p]; continue; }
       if (Math.abs(a - alpha) > 0.05) {
         pts.push(p);                 // runs overlap by a point, so no hairline gaps
@@ -737,7 +756,7 @@
       }
     }
     if (pts.length > 1) runs.push({ fade: alpha, points: pts });
-    return runs.filter((r) => r.fade > 0.06 && r.points.length > 1);
+    return runs.filter((r) => r.fade > 0.03 && r.points.length > 1);
   }
 
   /* Returns runs, not arcs: one arc may be cut in two and each half graded. */

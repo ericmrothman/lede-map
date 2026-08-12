@@ -200,6 +200,44 @@ window.LedeMapExport = (function () {
     });
   }
 
+  /* Web Mercator stops short of the poles, so a frame taller than the world has
+     nothing to draw in the last stretch top and bottom, and the page colour
+     shows through as two blank bands.
+
+     The fill is sampled from the map itself rather than kept as a per-theme
+     constant: read the row of pixels just inside the world's edge — open Arctic
+     and Southern Ocean at this zoom — and extend that colour outwards. It joins
+     seamlessly by construction, and it keeps working for any basemap added
+     later without a table of sea colours to maintain. */
+  function fillBeyondThePoles(g, view, refW, refH, scale) {
+    const map = app.map;
+    const worldH = 256 * Math.pow(2, view.zoom);
+    const originY = map.project(view.center, view.zoom).y - refH / 2;
+
+    const top = -originY;                 // canvas y of the world's north edge
+    const bottom = worldH - originY;      // ... and its south edge
+    if (top <= 0 && bottom >= refH) return;
+
+    const sample = (y) => {
+      const px = Math.round(refW * 0.5 * scale);
+      const py = Math.round(y * scale);
+      if (py < 0 || py >= g.canvas.height) return null;
+      const d = g.getImageData(px, py, 1, 1).data;
+      return d[3] === 0 ? null : `rgb(${d[0]},${d[1]},${d[2]})`;
+    };
+
+    if (top > 0) {
+      const sea = sample(top + 2) || token('--paper-warm');
+      g.fillStyle = sea;
+      g.fillRect(0, 0, refW, Math.ceil(top));
+    }
+    if (bottom < refH) {
+      const sea = sample(bottom - 3) || token('--paper-warm');
+      g.fillStyle = sea;
+      g.fillRect(0, Math.floor(bottom), refW, Math.ceil(refH - bottom));
+    }
+  }
+
   /* --- The picture ------------------------------------------------------- */
 
   async function paint(canvas, opts) {
@@ -241,6 +279,8 @@ window.LedeMapExport = (function () {
        country lettering is set enormous — it reads as the subject of the image
        rather than as orientation, and it fights the people's names, which are
        the actual subject. The land keeps its shape; only the shouting goes. */
+
+    fillBeyondThePoles(g, view, refW, refH, scale);
 
     opts.onProgress && opts.onProgress('Drawing…');
 

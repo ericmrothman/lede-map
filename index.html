@@ -28,6 +28,7 @@
     <p id="tally" class="tally">Loading the map&hellip;</p>
   </div>
   <div class="topbar-actions">
+    <button id="names-btn" class="btn btn-ghost" type="button" aria-pressed="true">Hide names</button>
     <button id="share-btn" class="btn btn-ghost" type="button">Share link</button>
     <button id="add-btn" class="btn btn-primary" type="button">Add your city</button>
   </div>
@@ -54,7 +55,7 @@
       <input id="q" type="text" placeholder="Start typing&hellip; e.g. Lagos, Quito, Seoul"
              aria-describedby="q-hint" role="combobox" aria-expanded="false"
              aria-controls="results" aria-autocomplete="list">
-      <span id="q-hint" class="hint">Or close this and click anywhere on the map.</span>
+      <span id="q-hint" class="hint">Or click your spot straight on the map.</span>
     </label>
 
     <ul id="results" class="results" role="listbox" aria-label="City search results" hidden></ul>
@@ -80,6 +81,7 @@
     <button id="submit-btn" class="btn btn-primary btn-block" type="submit" disabled>
       Add my pin
     </button>
+    <button id="cancel-edit" class="link-btn cancel-edit" type="button" hidden>Cancel</button>
   </form>
 
   <div id="mine" class="mine" hidden>

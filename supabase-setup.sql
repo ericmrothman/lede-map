@@ -45,6 +45,9 @@ revoke all on public.pins from anon;
 grant select (id, name, label, lat, lng, note, created_at) on public.pins to anon;
 grant insert on public.pins to anon;
 grant delete on public.pins to anon;
+-- Editable columns only: `secret` stays unwritable so the ownership token
+-- cannot be overwritten, and `id` so a row cannot be re-pointed at someone else.
+grant update (name, label, lat, lng, note) on public.pins to anon;
 
 -- ---------------------------------------------------------------------------
 -- 3. Row-level security
@@ -55,6 +58,7 @@ alter table public.pins enable row level security;
 drop policy if exists pins_public_read   on public.pins;
 drop policy if exists pins_public_insert on public.pins;
 drop policy if exists pins_delete_own    on public.pins;
+drop policy if exists pins_update_own    on public.pins;
 
 -- Anyone with the link can see the map.
 create policy pins_public_read on public.pins
@@ -80,7 +84,26 @@ create policy pins_delete_own on public.pins
     )
   );
 
--- Notably absent: any UPDATE policy. Nobody can edit anybody's entry, ever.
+-- Editing works the same way: prove ownership with the secret. USING picks the
+-- rows you may target, WITH CHECK constrains what they may become — both are
+-- needed, since USING alone would let a row be edited into an unownable state.
+create policy pins_update_own on public.pins
+  for update to anon
+  using (
+    secret <> ''
+    and secret = coalesce(
+      current_setting('request.headers', true)::json ->> 'x-pin-secret', ''
+    )
+  )
+  with check (
+    secret <> ''
+    and secret = coalesce(
+      current_setting('request.headers', true)::json ->> 'x-pin-secret', ''
+    )
+  );
+
+-- So: a visitor may read every pin, add one, and edit or delete only the pin
+-- whose secret their browser holds. Nobody can touch anybody else's entry.
 
 -- ===========================================================================
 --  Moderation cheat sheet (run these yourself in the SQL Editor, which uses

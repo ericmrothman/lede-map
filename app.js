@@ -83,6 +83,24 @@
       return pin;
     },
 
+    async update(id, patch, secret) {
+      const res = await fetch(
+        `${CFG.supabaseUrl}/rest/v1/pins?id=eq.${encodeURIComponent(id)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: CFG.supabaseKey,
+            Authorization: `Bearer ${CFG.supabaseKey}`,
+            'Content-Type': 'application/json',
+            'X-Pin-Secret': secret,
+            Prefer: 'return=minimal',
+          },
+          body: JSON.stringify(patch),
+        }
+      );
+      if (!res.ok) throw new Error(await describeError(res, 'edit'));
+    },
+
     async remove(id, secret) {
       const res = await fetch(
         `${CFG.supabaseUrl}/rest/v1/pins?id=eq.${encodeURIComponent(id)}`,
@@ -110,6 +128,10 @@
       localStorage.setItem(DEMO_KEY, JSON.stringify(all));
       return pin;
     },
+    async update(id, patch) {
+      const all = (await localStore.list()).map((p) => (p.id === id ? Object.assign({}, p, patch) : p));
+      localStorage.setItem(DEMO_KEY, JSON.stringify(all));
+    },
     async remove(id) {
       const all = (await localStore.list()).filter((p) => p.id !== id);
       localStorage.setItem(DEMO_KEY, JSON.stringify(all));
@@ -118,14 +140,16 @@
 
   const store = REMOTE ? remoteStore : localStore;
 
-  async function describeError(res) {
+  async function describeError(res, op) {
     let detail = '';
     try {
       const body = await res.json();
       detail = body.message || body.hint || body.details || '';
     } catch { /* non-JSON error body */ }
     if (res.status === 401 || res.status === 403) {
-      return 'The database rejected that. Check the anon key and the security policies.';
+      return op === 'edit'
+        ? 'The database will not accept edits yet — run supabase-migration-edit.sql in the Supabase SQL Editor.'
+        : 'The database rejected that. Check the anon key and the security policies.';
     }
     return detail || `Request failed (${res.status})`;
   }
@@ -163,6 +187,9 @@
      so a busy city label never sits on top of somebody's dot. */
   map.createPane('labels').style.zIndex = 350;
   map.getPane('labels').style.pointerEvents = 'none';
+  // Held well back: the basemap's country and city names are orientation, not
+  // content. The people are the content, and they compete for the same pixels.
+  map.getPane('labels').style.opacity = '0.42';
 
   L.tileLayer(
     'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
@@ -174,6 +201,7 @@
   let pendingMarker = null;
   let pins = [];
   let hasFitOnce = false;
+  let showNames = localStorage.getItem('wwf:names') !== 'off';
 
   /* Pins in the same place become one dot that grows with the crowd — the
      point of the artifact is seeing where people cluster. */
@@ -189,13 +217,19 @@
 
   function popupHtml(group) {
     const place = group.entries[0].label;
+    const m = mine.get();
     const items = group.entries
       .map((p) => {
         const who = p.name
           ? `<span class="popup-name">${esc(p.name)}</span>`
           : '<span class="popup-anon">someone</span>';
         const note = p.note ? `<span class="popup-note">${esc(p.note)}</span>` : '';
-        return `<li>${who}${note}</li>`;
+        // Only your own row, and only in the browser holding its secret —
+        // the database enforces the same rule regardless of what's rendered.
+        const edit = m && m.id === p.id
+          ? `<button type="button" class="popup-edit" data-pin="${esc(p.id)}">Edit</button>`
+          : '';
+        return `<li><span class="popup-row">${who}${edit}</span>${note}</li>`;
       })
       .join('');
     const count = group.entries.length;
@@ -205,27 +239,222 @@
     return `<p class="popup-place">${heading}</p><ul class="popup-list">${items}</ul>`;
   }
 
+  /* --- Name labels ------------------------------------------------------ */
+  /* Leaflet's permanent tooltips sit wherever they're told and happily stack
+     on top of each other, which is useless once two classmates live near one
+     another. So labels are their own overlay: measured once, resolved against
+     each other in screen space every time the view moves, and tethered back
+     to their dot with a curved arrow whenever they had to travel to find room.
+
+     Everything here is deterministic — the tilt and the bow of each arrow come
+     from a hash of the label text, so a given person's label looks the same on
+     every reload rather than reshuffling under them. */
+
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const ARROW_DEFS =
+    '<defs><marker id="lbl-arrow" viewBox="0 0 8 8" refX="6.5" refY="4" ' +
+    'markerWidth="5" markerHeight="5" orient="auto">' +
+    '<path d="M0.6 0.9 L6.6 4 L0.6 7.1" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '</marker></defs>';
+
+  const labelLayer = document.createElement('div');
+  labelLayer.className = 'label-layer';
+  map.getContainer().appendChild(labelLayer);
+
+  const arrowSvg = document.createElementNS(SVGNS, 'svg');
+  arrowSvg.setAttribute('class', 'label-arrows');
+  arrowSvg.innerHTML = ARROW_DEFS;
+  labelLayer.appendChild(arrowSvg);
+
+  let labelItems = [];
+
+  const dotRadius = (n) => 6 + Math.min(11, 3.2 * Math.sqrt(n - 1));
+
+  /* Stable value in [-1, 1] from a string — same label, same tilt, every load. */
+  function seedOf(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+    return (Math.abs(h % 2000) / 1000) - 1;
+  }
+
+  function labelParts(group) {
+    const named = group.entries.map((e) => e.name).filter(Boolean);
+    const anon = group.entries.length - named.length;
+    const city = String(group.entries[0].label || '').split(',')[0].trim();
+    if (!named.length) return { who: '', city };
+    const shown = named.slice(0, 2);
+    const extra = (named.length - shown.length) + anon;
+    return { who: shown.join(' & ') + (extra > 0 ? ` +${extra}` : ''), city };
+  }
+
+  function buildLabels(groups) {
+    for (const it of labelItems) it.el.remove();
+    labelItems = [];
+    if (!showNames) return;
+
+    for (const g of groups) {
+      const { who, city } = labelParts(g);
+      if (!who && !city) continue;
+      const el = document.createElement('div');
+      el.className = 'pin-label';
+      el.innerHTML =
+        (who ? `<span class="pin-label-who">${esc(who)}</span>` : '') +
+        (city ? `<span class="pin-label-city">${esc(city)}</span>` : '');
+      labelLayer.appendChild(el);
+      labelItems.push({
+        el,
+        lat: g.lat,
+        lng: g.lng,
+        radius: dotRadius(g.entries.length),
+        seed: seedOf(who + city),
+        w: el.offsetWidth,
+        h: el.offsetHeight,
+      });
+    }
+  }
+
+  const GAP = 4;
+  const TILT_NEAR = 2.5;   // degrees, for a label sitting right next to its dot
+  const TILT_FAR = 9;      // a displaced label leans harder — reads as deliberate
+
+  const hits = (a, b) =>
+    !(a.x + a.w + GAP < b.x || b.x + b.w + GAP < a.x ||
+      a.y + a.h + GAP < b.y || b.y + b.h + GAP < a.y);
+
+  /* Footprint of a w×h label tilted by `deg`, centred on (cx, cy). Testing the
+     flat rectangle is what let tilted neighbours clip each other. */
+  function tiltedBox(cx, cy, w, h, deg) {
+    const rad = Math.abs(deg) * Math.PI / 180;
+    const c = Math.cos(rad), sn = Math.sin(rad);
+    const bw = w * c + h * sn;
+    const bh = w * sn + h * c;
+    return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+  }
+
+  /* Where a ray leaving a box's centre crosses its edge. */
+  function edgeOfBox(cx, cy, w, h, ux, uy, pad) {
+    const hw = w / 2 + pad, hh = h / 2 + pad;
+    const t = Math.min(
+      ux === 0 ? Infinity : hw / Math.abs(ux),
+      uy === 0 ? Infinity : hh / Math.abs(uy)
+    );
+    return [cx + ux * t, cy + uy * t];
+  }
+
+  function layoutLabels() {
+    if (!labelItems.length) return;
+
+    const size = map.getSize();
+    arrowSvg.setAttribute('viewBox', `0 0 ${size.x} ${size.y}`);
+    for (const old of arrowSvg.querySelectorAll('path.label-arrow')) old.remove();
+
+    const items = labelItems.map((it) => {
+      const pt = map.latLngToContainerPoint([it.lat, it.lng]);
+      if (!it.w) { it.w = it.el.offsetWidth; it.h = it.el.offsetHeight; }
+      return Object.assign({}, it, { pt });
+    });
+
+    /* Reserve the dots first so a label never covers somebody's pin, then work
+       top-down so the resolved layout is stable instead of order-of-arrival. */
+    const taken = items.map((it) => ({
+      x: it.pt.x - it.radius, y: it.pt.y - it.radius,
+      w: it.radius * 2, h: it.radius * 2,
+    }));
+    items.sort((a, b) => a.pt.y - b.pt.y);
+
+    for (const it of items) {
+      const { pt, w, h, radius: r } = it;
+
+      // Off-screen labels cost nothing to skip and would clutter the edges.
+      if (pt.x < -200 || pt.y < -200 || pt.x > size.x + 200 || pt.y > size.y + 200) {
+        it.el.style.display = 'none';
+        continue;
+      }
+      it.el.style.display = '';
+
+      const spots = [
+        { x: pt.x + r + 9,         y: pt.y - h / 2,     far: false },
+        { x: pt.x - r - 9 - w,     y: pt.y - h / 2,     far: false },
+        { x: pt.x - w / 2,         y: pt.y - r - 7 - h, far: false },
+        { x: pt.x - w / 2,         y: pt.y + r + 7,     far: false },
+      ];
+      // Nothing adjacent worked — spiral outward, and accept a tether. Small
+      // steps keep a bumped label near its dot instead of stranding it at sea.
+      for (let ring = 1; ring <= 9; ring++) {
+        const dist = r + 24 + ring * 17;
+        for (let k = 0; k < 16; k++) {
+          const ang = (k / 16) * Math.PI * 2 + it.seed * 0.6;
+          spots.push({
+            x: pt.x + Math.cos(ang) * dist - w / 2,
+            y: pt.y + Math.sin(ang) * dist - h / 2,
+            far: true,
+          });
+        }
+      }
+
+      let spot = spots[0];
+      let box = tiltedBox(spot.x + w / 2, spot.y + h / 2, w, h, it.seed * TILT_FAR);
+      for (const c of spots) {
+        const t = it.seed * (c.far ? TILT_FAR : TILT_NEAR);
+        const b = tiltedBox(c.x + w / 2, c.y + h / 2, w, h, t);
+        if (taken.every((o) => !hits(b, o))) { spot = c; box = b; break; }
+      }
+      taken.push(box);
+
+      const tilt = it.seed * (spot.far ? TILT_FAR : TILT_NEAR);
+      it.el.style.transform =
+        `translate(${Math.round(spot.x)}px, ${Math.round(spot.y)}px) rotate(${tilt.toFixed(2)}deg)`;
+
+      if (!spot.far) continue;
+
+      const lx = spot.x + w / 2, ly = spot.y + h / 2;
+      const dx = pt.x - lx, dy = pt.y - ly;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      const [sx, sy] = edgeOfBox(lx, ly, w, h, ux, uy, 4);
+      const ex = pt.x - ux * (r + 5);
+      const ey = pt.y - uy * (r + 5);
+      const bow = Math.min(len * 0.22, 26) * (it.seed >= 0 ? 1 : -1);
+      const cx = (sx + ex) / 2 - uy * bow;
+      const cy = (sy + ey) / 2 + ux * bow;
+
+      const path = document.createElementNS(SVGNS, 'path');
+      path.setAttribute('class', 'label-arrow');
+      path.setAttribute('d', `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`);
+      path.setAttribute('marker-end', 'url(#lbl-arrow)');
+      arrowSvg.appendChild(path);
+    }
+  }
+
+  map.on('move zoom viewreset resize', layoutLabels);
+
   function render() {
     pinLayer.clearLayers();
     const groups = groupPins(pins);
 
     for (const g of groups) {
       const n = g.entries.length;
-      const radius = 6 + Math.min(11, 3.2 * Math.sqrt(n - 1));
-      L.circleMarker([g.lat, g.lng], {
-        radius,
+      const marker = L.circleMarker([g.lat, g.lng], {
+        radius: dotRadius(n),
         className: 'pin-dot',
         renderer,
         bubblingMouseEvents: false,   // clicking a pin must not also drop a new one
-      })
-        .bindPopup(popupHtml(g), { closeButton: false, maxWidth: 260 })
-        .bindTooltip(
+      }).bindPopup(popupHtml(g), { closeButton: false, maxWidth: 260 });
+
+      // With labels on, a hover tooltip would only repeat what's already there.
+      if (!showNames) {
+        marker.bindTooltip(
           n > 1 ? `${g.entries[0].label} · ${n}` : g.entries[0].label,
-          { direction: 'top', offset: [0, -radius - 2] }
-        )
-        .addTo(pinLayer);
+          { direction: 'top', offset: [0, -dotRadius(n) - 2] }
+        );
+      }
+
+      marker.addTo(pinLayer);
     }
 
+    buildLabels(groups);
+    layoutLabels();
     updateTally(groups);
 
     if (!hasFitOnce && pins.length) {
@@ -306,8 +535,9 @@
   const submitBtn = $('submit-btn');
   const errorEl = $('form-error');
 
-  let chosen = null;   // { label, lat, lng }
+  let chosen = null;      // { label, lat, lng }
   let busy = false;
+  let editingId = null;   // set while amending an existing entry
 
   function openPanel() {
     panel.hidden = false;
@@ -319,6 +549,41 @@
     panel.hidden = true;
     hideResults();
     clearPending();
+    if (editingId) stopEdit();
+  }
+
+  /* One panel does both jobs; this keeps its wording honest about which. */
+  function syncMode() {
+    const editing = Boolean(editingId);
+    $('panel-title').textContent = editing ? 'Edit your entry' : 'Put yourself on the map';
+    submitBtn.textContent = editing ? 'Save changes' : 'Add my pin';
+    $('cancel-edit').hidden = !editing;
+    $('mine').hidden = editing || !mine.get();
+  }
+
+  function startEdit(pinId) {
+    const m = mine.get();
+    const pin = pins.find((p) => p.id === pinId);
+    if (!pin || !m || m.id !== pin.id) return;
+
+    editingId = pin.id;
+    map.closePopup();
+    panel.hidden = false;
+    clearError();
+    $('name').value = pin.name || '';
+    $('note').value = pin.note || '';
+    setChosen({ label: pin.label, lat: +pin.lat, lng: +pin.lng });
+    syncMode();
+  }
+
+  function stopEdit() {
+    editingId = null;
+    $('name').value = '';
+    $('note').value = '';
+    unsetChosen();
+    clearError();
+    syncMode();
+    syncMineUi();
   }
 
   function showError(msg) {
@@ -368,7 +633,7 @@
     resultsEl.innerHTML = '';
     if (!items.length) {
       resultsEl.innerHTML =
-        '<li class="empty">No match. Try a bigger nearby city, or close this and click the map.</li>';
+        '<li class="empty">No match. Try a bigger nearby city, or click your spot on the map.</li>';
       resultsEl.hidden = false;
       return;
     }
@@ -410,41 +675,53 @@
 
     busy = true;
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Adding…';
+    submitBtn.textContent = editingId ? 'Saving…' : 'Adding…';
     clearError();
 
-    const secret = uuid() + uuid();
-    const pin = {
-      id: uuid(),
+    const fields = {
       name: name || null,
       label: chosen.label,
       lat: chosen.lat,
       lng: chosen.lng,
       note: note || null,
-      created_at: new Date().toISOString(),
     };
 
     try {
-      await store.add(pin, secret);
-      mine.set({ id: pin.id, secret, label: pin.label });
+      if (editingId) {
+        const m = mine.get();
+        await store.update(editingId, fields, m && m.secret);
+        mine.set({ id: editingId, secret: m.secret, label: fields.label });
 
-      pins.push(pin);
-      clearPending();
-      render();
+        const i = pins.findIndex((p) => p.id === editingId);
+        if (i >= 0) pins[i] = Object.assign({}, pins[i], fields);
+        clearPending();
+        stopEdit();
+        render();
+        map.flyTo([fields.lat, fields.lng], Math.max(map.getZoom(), 5), { duration: 0.8 });
+        toast('Updated.');
+      } else {
+        const secret = uuid() + uuid();
+        const pin = Object.assign({ id: uuid(), created_at: new Date().toISOString() }, fields);
+        await store.add(pin, secret);
+        mine.set({ id: pin.id, secret, label: pin.label });
 
-      map.flyTo([pin.lat, pin.lng], Math.max(map.getZoom(), 5), { duration: 0.8 });
-      toast('You’re on the map.');
+        pins.push(pin);
+        clearPending();
+        render();
+        map.flyTo([pin.lat, pin.lng], Math.max(map.getZoom(), 5), { duration: 0.8 });
+        toast('You’re on the map.');
 
-      $('name').value = '';
-      $('note').value = '';
-      unsetChosen();
-      syncMineUi();
+        $('name').value = '';
+        $('note').value = '';
+        unsetChosen();
+        syncMineUi();
+      }
     } catch (err) {
       showError(err.message || 'Something went wrong. Try again in a moment.');
       submitBtn.disabled = false;
     } finally {
       busy = false;
-      submitBtn.textContent = 'Add my pin';
+      submitBtn.textContent = editingId ? 'Save changes' : 'Add my pin';
     }
   }
 
@@ -474,10 +751,24 @@
   }
 
   /* --- Map click = manual placement ------------------------------------- */
+  /* Placing by click is a mode, not the map's default response. It is armed
+     only while the panel is open and no city has been chosen yet. Before,
+     any stray click dropped a pin — so dismissing a popup started an entry,
+     which is both surprising and tedious to back out of. */
+
+  let popupIsOpen = false;
+  let popupWasOpen = false;
+  map.on('popupopen', () => { popupIsOpen = true; });
+  map.on('popupclose', () => { popupIsOpen = false; });
+  // Leaflet closes the popup on 'preclick', before 'click' — so record the
+  // state here, while it is still true.
+  map.on('preclick', () => { popupWasOpen = popupIsOpen; });
 
   map.on('click', async (e) => {
+    if (popupWasOpen) { popupWasOpen = false; return; }  // that click only dismissed a popup
+    if (panel.hidden || chosen) return;                  // not in "pick a spot" mode
+
     const { lat, lng } = e.latlng;
-    openPanel();
     chosenLabel.textContent = 'Looking up that spot…';
     chosenEl.hidden = false;
     qInput.parentElement.hidden = true;
@@ -491,7 +782,30 @@
 
   /* --- Wire it up ------------------------------------------------------- */
 
-  $('add-btn').addEventListener('click', openPanel);
+  function syncNamesBtn() {
+    $('names-btn').textContent = showNames ? 'Hide names' : 'Show names';
+    $('names-btn').setAttribute('aria-pressed', String(showNames));
+  }
+
+  $('names-btn').addEventListener('click', () => {
+    showNames = !showNames;
+    localStorage.setItem('wwf:names', showNames ? 'on' : 'off');
+    syncNamesBtn();
+    render();
+  });
+  syncNamesBtn();
+
+  map.getContainer().addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('.popup-edit');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startEdit(btn.dataset.pin);
+  });
+
+  $('cancel-edit').addEventListener('click', () => { stopEdit(); closePanel(); });
+
+  $('add-btn').addEventListener('click', () => { if (editingId) stopEdit(); openPanel(); });
   $('panel-close').addEventListener('click', closePanel);
   $('chosen-clear').addEventListener('click', unsetChosen);
   $('pin-form').addEventListener('submit', submit);
@@ -546,6 +860,7 @@
 
   load(false);
   syncMineUi();
+  syncMode();
 
   if (REMOTE && CFG.refreshMs > 0) {
     setInterval(() => { if (!document.hidden && !busy) load(true); }, CFG.refreshMs);

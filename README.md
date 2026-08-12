@@ -103,9 +103,16 @@ Realistically nobody in your class will. If someone does, delete the row from th
 Supabase SQL Editor — there's a cheat sheet of moderation queries at the bottom
 of `supabase-setup.sql`.
 
-**Removing your own pin** works from the panel, and only from the browser you
-added it in. The delete token lives in `localStorage`; clear your browser data
-and you lose the ability to remove it yourself.
+**Editing and removing your own pin** work from the popup (click your dot →
+**Edit**) and from the panel, and only from the browser you added it in. The
+ownership token lives in `localStorage`; clear your browser data and you lose
+the ability to change that entry yourself. Nobody else can ever edit it — the
+database checks the token, not the browser.
+
+> **If you set the project up before the Edit button existed**, run
+> [supabase-migration-edit.sql](supabase-migration-edit.sql) once in the
+> Supabase SQL Editor. Until then, Edit will tell you the database refused the
+> change. `supabase-setup.sql` already includes it for a fresh project.
 
 **Nominatim is rate-limited** to roughly one request per second per user. The
 debounce handles normal typing. If the whole class submits in the same thirty

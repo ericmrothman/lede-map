@@ -176,13 +176,19 @@ image instead of the people. And it doesn't frame to the pins at all: it uses th
 map's own furthest zoom out — the level you land on holding the minus button
 down — so the image is the view the map itself considers all the way out.
 
-Vertically it centres on the band of inhabited land — the north of Greenland
-down to Cape Horn — rather than on the projection. Antarctica is a third of the
-Mercator square and nobody lives there; centring on the map's own middle spends
-the bottom of the picture on empty ice and pushes everyone into the top half.
-If someone lives far enough south that the frame would cut them off, it nudges
-down to keep them in. A preference about centring should never cost you a
-classmate.
+Vertically it centres on the class — the mean pin position, one vote per label —
+rather than on the projection or on the land. Centring on the projection puts
+the middle of the picture at the equator and spends the bottom third on empty
+ice; centring on the inhabited landmass drags the frame toward Greenland and
+Cape Horn, two ends nobody lives at. The people are the subject, so the centre
+is theirs. If someone lives far enough south that the frame would cut them off,
+it nudges down to keep them in: a preference about centring should never cost
+you a classmate.
+
+At the widest presets the frame is taller than the whole Mercator world, so a
+strip of sea has to land at one edge or the other. It lands at the top, where
+the fill is sampled from the Arctic Ocean and reads as more ocean; leaving it
+under Antarctica would instead read as the world stopping short.
 
 > **Attribution.** The exported image carries no credit line — the site still
 > credits OpenStreetMap and CARTO in its footer. OpenStreetMap data is ODbL and

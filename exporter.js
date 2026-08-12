@@ -104,13 +104,15 @@ window.LedeMapExport = (function () {
      loop already repeats the world sideways, which is what the live map does at
      this level too.
 
-     Vertically it is centred on the band of inhabited land rather than on the
-     projection. Antarctica is a third of the Mercator square and nobody in the
-     class lives there, so centring on the map's own middle spends the bottom of
-     the picture on empty ice and pushes everyone up into the top half. The band
-     runs from the north of Greenland to Cape Horn. */
-  const LAND_NORTH = 83.6;
-  const LAND_SOUTH = -56;
+     Vertically it is centred on the class — the pins and their names — and not
+     on the projection or on the land. Centring on the projection puts the
+     middle of the picture at the equator and spends the bottom third on empty
+     ice; centring on the inhabited landmass, Greenland down to Cape Horn, drags
+     the picture toward two ends nobody lives at. The people are the subject, so
+     the centre is their centre: the mean pin position, one vote per label, in
+     projected pixels. Mercator stretches the far north, and that is the right
+     weighting here — it is where the names take up room on the page. */
+  const LABEL_ROOM = 46;          // a label sits about this far off its dot
 
   function frame(refW, refH, pins) {
     const map = app.map;
@@ -118,24 +120,34 @@ window.LedeMapExport = (function () {
     const worldH = 256 * Math.pow(2, zoom);
     const half = refH / 2;
 
-    const top = map.project([LAND_NORTH, 0], zoom).y;
-    const bottom = map.project([LAND_SOUTH, 0], zoom).y;
-    let cy = (top + bottom) / 2;
+    let cy = worldH / 2;          // no pins yet: fall back to the projection
 
-    /* Nobody may be cropped out of their own class photo. A 16:9 frame cannot
-       hold the whole inhabited band, so someone far south — the Falklands, in
-       this class — can fall below the bottom edge. Where it takes only a nudge
-       to bring everyone back in, take it; the centring is a preference, but a
-       missing classmate is a bug. */
     if (pins && pins.length) {
       const ys = pins.map((p) => map.project(p, zoom).y);
-      const lo = Math.min(...ys) - 46;      // room for the label above the dot
-      const hi = Math.max(...ys) + 46;
+      cy = ys.reduce((a, b) => a + b, 0) / ys.length;
+
+      /* Nobody may be cropped out of their own class photo. The frame cannot
+         always hold everyone, but where it takes only a nudge to bring the
+         outliers back in — the Falklands, in this class — take it; the
+         centring is a preference, a missing classmate is a bug. */
+      const lo = Math.min(...ys) - LABEL_ROOM;
+      const hi = Math.max(...ys) + LABEL_ROOM;
       if (hi - lo <= refH) cy = Math.min(Math.max(cy, hi - half), lo + half);
     }
 
-    // Hold the frame inside the map so no edge shows through as blank paper.
-    cy = worldH < refH ? worldH / 2 : Math.min(Math.max(cy, half), worldH - half);
+    /* Hold the frame inside the map so no edge shows through as blank paper.
+
+       At the widest exports the frame is taller than the whole Mercator world,
+       and then there is nothing to hold it against: every cy leaves a strip of
+       sea fill at one edge or the other. Centring the world in that case is
+       what kept pushing everyone into the top half — the world's own middle is
+       the equator, and the class sits well north of it. So keep the centring on
+       the class and let the strip fall at the top, where the sampled Arctic
+       Ocean simply reads as more ocean; a strip under Antarctica would instead
+       read as the world stopping short. */
+    cy = worldH < refH
+      ? Math.min(cy, worldH - half)
+      : Math.min(Math.max(cy, half), worldH - half);
 
     return {
       center: map.unproject([map.project([0, 0], zoom).x, cy], zoom),

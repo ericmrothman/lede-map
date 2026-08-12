@@ -25,7 +25,7 @@ window.LedeMapExport = (function () {
   const REF_WIDTH = 1600;
   const TILE = 256;
   const MAX_TILES = 600;          // a mis-framed view must not fetch thousands
-  const ARC_ALPHA = 0.26;         // matches the live map
+  const ARC_ALPHA = 0.30;         // matches the live map
   const SERIF = '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif';
   const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif';
 
@@ -94,9 +94,15 @@ window.LedeMapExport = (function () {
 
   /* --- Framing ----------------------------------------------------------- */
 
-  /* Framing is not fitted to the pins. It shows the whole world, zoomed out as
-     far as it goes before the map either repeats or leaves bars down the sides:
-     one world spanning exactly the width of the frame.
+  /* Framing is not fitted to the pins. It uses the map's own furthest zoom out
+     — getMinZoom, the level you land on holding the minus button down — so the
+     image is the view the map itself considers "all the way out".
+
+     Deriving a zoom that made one world span the frame exactly was tempting and
+     wrong: it lands tighter than the map's own limit, so exports came back
+     looking more zoomed in than the thing they were exported from. The tile
+     loop already repeats the world sideways, which is what the live map does at
+     this level too.
 
      Vertically it is centred on the band of inhabited land rather than on the
      projection. Antarctica is a third of the Mercator square and nobody in the
@@ -108,7 +114,7 @@ window.LedeMapExport = (function () {
 
   function frame(refW, refH, pins) {
     const map = app.map;
-    const zoom = Math.log2(refW / 256);
+    const zoom = map.getMinZoom();
     const worldH = 256 * Math.pow(2, zoom);
     const half = refH / 2;
 
@@ -246,8 +252,9 @@ window.LedeMapExport = (function () {
       g.lineCap = 'round';
       // Each run carries its own opacity: full strength away from the seam,
       // falling to nothing as it approaches the edge of the sheet.
+      g.globalAlpha = ARC_ALPHA;
       for (const run of app.arcPaths()) {
-        g.globalAlpha = ARC_ALPHA * run.alpha;
+        g.setLineDash(app.arcDash(run.fade) || []);
         g.beginPath();
         run.points.forEach(([lat, lng], i) => {
           const p = toPoint(lat, lng);
@@ -255,6 +262,7 @@ window.LedeMapExport = (function () {
         });
         g.stroke();
       }
+      g.setLineDash([]);
       g.restore();
     }
 

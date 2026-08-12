@@ -156,9 +156,9 @@ they are meant to be a texture, not a subject.
 
 A course to Tokyo runs west across the Pacific and over the antimeridian, so it
 has to be cut where it leaves the map. Rather than stopping dead against an
-invisible wall, each arc dissolves into the seam — opacity falls away over the
-last stretch of longitude, so the line reads as continuing past the edge of the
-sheet instead of ending at it.
+invisible wall, each arc breaks up as it approaches: the stroke turns from solid
+to dashed, and the dashes shorten and draw further apart until there is nothing
+left. A line trailing off, rather than one someone turned the lights down on.
 
 **Save as image** — writes a PNG at 1920×1080, 2560×1440, 4K, or your own screen
 size, made to be used as a desktop background. It renders from `@2x` tiles, so a
@@ -167,9 +167,9 @@ size, made to be used as a desktop background. It renders from `@2x` tiles, so a
 Two things the export does differently from the screen, both on purpose. It
 leaves the basemap's own place names off: at export scale CARTO sets continent
 and country lettering enormous, and it ends up reading as the subject of the
-image instead of the people. And it doesn't frame to the pins at all: it shows the
-whole world, zoomed out as far as it goes before the map repeats or leaves bars
-down the sides, so one world spans exactly the width of the image.
+image instead of the people. And it doesn't frame to the pins at all: it uses the
+map's own furthest zoom out — the level you land on holding the minus button
+down — so the image is the view the map itself considers all the way out.
 
 Vertically it centres on the band of inhabited land — the north of Greenland
 down to Cape Horn — rather than on the projection. Antarctica is a third of the

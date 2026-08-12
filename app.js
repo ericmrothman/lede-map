@@ -678,10 +678,20 @@
      The two halves are returned as runs of near-constant opacity, which keeps
      the count of drawn paths sane — a long stretch far from the seam is one run
      at full strength, and only the fading tail is finely divided. */
-  const SEAM_FADE = 38;      // degrees of longitude over which an arc dissolves
-  const ARC_ALPHA = 0.26;
+  const SEAM_FADE = 44;      // degrees of longitude over which an arc dissolves
+  const ARC_ALPHA = 0.30;
 
   const fadeAt = (lng) => Math.max(0, Math.min(1, (180 - Math.abs(lng)) / SEAM_FADE));
+
+  /* An arc doesn't dim into the seam, it breaks up. Approaching the edge the
+     stroke turns from solid to dashed, and the dashes shorten and draw further
+     apart until there is nothing left — a line trailing off rather than one
+     someone turned the lights down on. Returns a dash pattern, or null while
+     the run is still solid. */
+  function arcDash(fade) {
+    if (fade > 0.92) return null;
+    return [Math.max(0.5, 3.4 * fade), 1.6 + (1 - fade) * 17];
+  }
 
   function splitAtSeam(points) {
     const wrap = (x) => ((((x + 180) % 360) + 360) % 360) - 180;
@@ -719,15 +729,15 @@
       if (alpha === null) { alpha = a; pts = [p]; continue; }
       if (Math.abs(a - alpha) > 0.05) {
         pts.push(p);                 // runs overlap by a point, so no hairline gaps
-        runs.push({ alpha, points: pts });
+        runs.push({ fade: alpha, points: pts });
         pts = [p];
         alpha = a;
       } else {
         pts.push(p);
       }
     }
-    if (pts.length > 1) runs.push({ alpha, points: pts });
-    return runs.filter((r) => r.alpha > 0.02 && r.points.length > 1);
+    if (pts.length > 1) runs.push({ fade: alpha, points: pts });
+    return runs.filter((r) => r.fade > 0.06 && r.points.length > 1);
   }
 
   /* Returns runs, not arcs: one arc may be cut in two and each half graded. */
@@ -743,11 +753,14 @@
     arcLayer.clearLayers();
     if (!showArcs) return;
     for (const run of arcPaths()) {
+      const dash = arcDash(run.fade);
       L.polyline(run.points, {
         pane: 'arcs',
         color: accentHex(),      // a literal, so a theme change means a redraw
         weight: 1,
-        opacity: ARC_ALPHA * run.alpha,
+        opacity: ARC_ALPHA,
+        lineCap: 'round',
+        dashArray: dash ? dash.join(',') : null,
         interactive: false,
       }).addTo(arcLayer);
     }
@@ -1269,6 +1282,7 @@
       solveLabels,
       measureLabels,
       arcPaths,
+      arcDash,
       labelParts,
       getPins: () => pins,
       getLabelItems: () => labelItems,

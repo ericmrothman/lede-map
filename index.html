@@ -16,7 +16,14 @@
 <link rel="preconnect" href="https://basemaps.cartocdn.com">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<link rel="stylesheet" href="styles.css">
+<!-- ?v= is a cache-buster, and it is load-bearing on GitHub Pages. Pages
+     serves every file with max-age=600, so for ten minutes after a deploy a
+     visitor can hold a cached app.js while fetching the new index.html — old
+     script, new markup, a lookup for a control that no longer exists, and the
+     script dies before any pins load. Versioned URLs cannot mismatch: new
+     markup asks for a new URL. Bump the ?v= on all four tags whenever one of
+     these files changes; the value is arbitrary, only that it changes. -->
+<link rel="stylesheet" href="styles.css?v=20260812a">
 </head>
 <body>
 
@@ -134,10 +141,10 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script src="config.js"></script>
+<script src="config.js?v=20260812a"></script>
 <!-- Defines window.LedeMapExport; app.js hands it a context object once the
      map exists. Load order is the whole wiring — there is no build step. -->
-<script src="exporter.js"></script>
-<script src="app.js"></script>
+<script src="exporter.js?v=20260812a"></script>
+<script src="app.js?v=20260812a"></script>
 </body>
 </html>

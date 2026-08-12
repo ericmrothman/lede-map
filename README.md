@@ -56,6 +56,16 @@ That's the link to send to the class.
 message, click **Commit**, then **Sync Changes**. Pages redeploys in under a
 minute; hard-refresh (`⇧⌘R`) if you still see the old version.
 
+> **Bump the `?v=` on the script and stylesheet tags in `index.html`** whenever
+> you change `app.js`, `exporter.js`, `config.js` or `styles.css`. Pages serves
+> everything with `max-age=600`, so for ten minutes after a deploy a visitor
+> can be handed the new `index.html` while their browser reuses the old
+> `app.js` from cache. The two halves then disagree: the old script goes
+> looking for a control the new markup no longer has, gets `null`, and dies
+> before a single pin loads — a blank map stuck on "loading". A new `?v=`
+> is a new URL, so the caches cannot mix versions. The value is arbitrary;
+> only changing it matters.
+
 > Don't rename the repository. The URL above is already in circulation, and
 > renaming breaks every link that's been shared.
 

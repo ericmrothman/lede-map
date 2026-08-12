@@ -177,10 +177,31 @@
 
   L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
-  L.tileLayer(
-    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png',
-    { subdomains: 'abcd', maxZoom: 18 }
-  ).addTo(map);
+  /* --- Themes ----------------------------------------------------------- */
+  /* A theme is a pair of CARTO basemap variants plus a set of CSS tokens. The
+     tokens live in styles.css keyed off <html data-theme>, so only the tiles
+     and the accent have to be applied from here.
+
+     Every variant below also serves @2x tiles, which is what lets the exporter
+     render a wallpaper that isn't soft. */
+
+  const THEMES = {
+    voyager: { base: 'rastertiles/voyager_nolabels', names: 'rastertiles/voyager_only_labels' },
+    paper:   { base: 'light_nolabels',               names: 'light_only_labels' },
+    night:   { base: 'dark_nolabels',                names: 'dark_only_labels' },
+    ink:     { base: 'light_nolabels',               names: null },
+  };
+
+  const ACCENTS = {
+    coral:  ['#e2483d', '#b8352b'],
+    cobalt: ['#2f6bd8', '#2453ab'],
+    moss:   ['#3f8a5c', '#2f6a46'],
+    plum:   ['#8a4f9e', '#6d3d7d'],
+    ochre:  ['#c08a2e', '#9a6d22'],
+  };
+
+  const LOOK_KEY = 'wwf:look';
+  const tileUrl = (v) => `https://{s}.basemaps.cartocdn.com/${v}/{z}/{x}/{y}{r}.png`;
 
   /* Place names go in their own pane, above the base tiles but below the pins
      so a busy city label never sits on top of somebody's dot. */
@@ -190,10 +211,54 @@
   // content. The people are the content, and they compete for the same pixels.
   map.getPane('labels').style.opacity = '0.42';
 
-  L.tileLayer(
-    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
-    { subdomains: 'abcd', maxZoom: 18, pane: 'labels' }
-  ).addTo(map);
+  let themeName = 'voyager';
+  let accentName = 'coral';
+  let baseLayer = null;
+  let namesLayer = null;
+
+  const accentHex = () => ACCENTS[accentName][0];
+
+  /* A link wins over a saved choice, which wins over the config default — so a
+     themed URL can be projected without disturbing what anyone else picked. */
+  function readLook() {
+    const hash = new URLSearchParams(location.hash.replace(/^#/, ''));
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(LOOK_KEY) || '{}'); } catch { /* ignore */ }
+    return {
+      theme: hash.get('t') || saved.theme || CFG.theme,
+      accent: hash.get('a') || saved.accent || CFG.accent,
+    };
+  }
+
+  function applyTheme(name, accent, opts) {
+    themeName = THEMES[name] ? name : 'voyager';
+    accentName = ACCENTS[accent] ? accent : 'coral';
+
+    document.documentElement.dataset.theme = themeName;
+    const [a, dark] = ACCENTS[accentName];
+    document.documentElement.style.setProperty('--accent', a);
+    document.documentElement.style.setProperty('--accent-dk', dark);
+
+    const t = THEMES[themeName];
+    if (baseLayer) map.removeLayer(baseLayer);
+    if (namesLayer) { map.removeLayer(namesLayer); namesLayer = null; }
+
+    baseLayer = L.tileLayer(tileUrl(t.base), {
+      subdomains: 'abcd', maxZoom: 18, crossOrigin: 'anonymous',
+    }).addTo(map);
+
+    if (t.names) {
+      namesLayer = L.tileLayer(tileUrl(t.names), {
+        subdomains: 'abcd', maxZoom: 18, pane: 'labels', crossOrigin: 'anonymous',
+      }).addTo(map);
+    }
+
+    if (!opts || !opts.quiet) {
+      localStorage.setItem(LOOK_KEY, JSON.stringify({ theme: themeName, accent: accentName }));
+      drawArcs();          // polylines carry a literal colour, so they must be redrawn
+      syncLookPanel();
+    }
+  }
 
   const pinLayer = L.layerGroup().addTo(map);
   let pendingMarker = null;
@@ -349,6 +414,8 @@
       labelLayer.appendChild(el);
       labelItems.push({
         el,
+        who,                 // kept as data too: the canvas exporter can't read
+        city,                // text back out of a DOM node it never renders
         lat: g.lat,
         lng: g.lng,
         radius: dotRadius(g.entries.length),
@@ -394,43 +461,59 @@
     return (lat, lng) => map._latLngToNewLayerPoint(L.latLng(lat, lng), zoom, center);
   }
 
-  function layoutLabels(project) {
-    if (!labelItems.length) return;
-    const toPoint = project || ((lat, lng) => map.latLngToLayerPoint([lat, lng]));
+  /* Pure geometry, no DOM and no canvas: given a projection and a viewport,
+     decide where every label sits, how far it leans, and whether it needs a
+     tether back to its dot.
 
-    const size = map.getSize();
-    for (const old of arrowSvg.querySelectorAll('path.label-arrow')) old.remove();
+     Both the live map and the image exporter call this one solver. That is the
+     only reason an exported wallpaper is the same picture as the screen —
+     duplicating the placement maths would guarantee the two drift apart.
 
-    const items = labelItems.map((it) => {
-      const pt = toPoint(it.lat, it.lng);
-      if (!it.w) { it.w = it.el.offsetWidth; it.h = it.el.offsetHeight; }
-      return Object.assign({}, it, { pt });
-    });
+     `reserved` is extra furniture to route around. The subject ribbon hands in
+     its own footprint and the names dodge it without the solver ever knowing
+     what it is. */
+  function solveLabels(opts) {
+    const toScreen = opts.toScreen || ((pt) => pt);
+    const W = opts.width, H = opts.height;
+    const margin = opts.margin == null ? 200 : opts.margin;
+
+    /* On screen a name may hang off the edge — you can always pan to it. In an
+       exported image there is no panning, so the exporter passes a frame and
+       candidates that would bleed off it are rejected. */
+    const pad = opts.bounds == null ? null : opts.bounds;
+    const inFrame = (b) => pad === null ||
+      (b.x >= pad && b.y >= pad && b.x + b.w <= W - pad && b.y + b.h <= H - pad);
+
+    const items = opts.items.map((it) =>
+      Object.assign({}, it, { pt: opts.toPoint(it.lat, it.lng) }));
 
     /* Reserve the dots first so a label never covers somebody's pin, then work
        top-down so the resolved layout is stable instead of order-of-arrival. */
-    const taken = items.map((it) => ({
-      x: it.pt.x - it.radius, y: it.pt.y - it.radius,
-      w: it.radius * 2, h: it.radius * 2,
-    }));
+    const taken = items
+      .map((it) => ({
+        x: it.pt.x - it.radius, y: it.pt.y - it.radius,
+        w: it.radius * 2, h: it.radius * 2,
+      }))
+      .concat(opts.reserved || []);
+
     items.sort((a, b) => a.pt.y - b.pt.y);
+    const out = [];
 
     for (const it of items) {
-      const { pt, w, h, radius: r } = it;
+      const pt = it.pt, w = it.w, h = it.h, r = it.radius;
 
       // Off-screen labels cost nothing to skip and would clutter the edges.
-      const scr = map.layerPointToContainerPoint(pt);
-      if (scr.x < -200 || scr.y < -200 || scr.x > size.x + 200 || scr.y > size.y + 200) {
-        it.el.style.display = 'none';
+      const scr = toScreen(pt);
+      if (scr.x < -margin || scr.y < -margin || scr.x > W + margin || scr.y > H + margin) {
+        out.push({ item: it, hidden: true });
         continue;
       }
-      it.el.style.display = '';
 
       const spots = [
-        { x: pt.x + r + 9,         y: pt.y - h / 2,     far: false },
-        { x: pt.x - r - 9 - w,     y: pt.y - h / 2,     far: false },
-        { x: pt.x - w / 2,         y: pt.y - r - 7 - h, far: false },
-        { x: pt.x - w / 2,         y: pt.y + r + 7,     far: false },
+        { x: pt.x + r + 9,     y: pt.y - h / 2,     far: false },
+        { x: pt.x - r - 9 - w, y: pt.y - h / 2,     far: false },
+        { x: pt.x - w / 2,     y: pt.y - r - 7 - h, far: false },
+        { x: pt.x - w / 2,     y: pt.y + r + 7,     far: false },
       ];
       // Nothing adjacent worked — spiral outward, and accept a tether. Small
       // steps keep a bumped label near its dot instead of stranding it at sea.
@@ -451,37 +534,77 @@
       for (const c of spots) {
         const t = it.seed * (c.far ? TILT_FAR : TILT_NEAR);
         const b = tiltedBox(c.x + w / 2, c.y + h / 2, w, h, t);
-        if (taken.every((o) => !hits(b, o))) { spot = c; box = b; break; }
+        if (inFrame(b) && taken.every((o) => !hits(b, o))) { spot = c; box = b; break; }
       }
       taken.push(box);
 
       const tilt = it.seed * (spot.far ? TILT_FAR : TILT_NEAR);
-      it.el.style.transform =
-        `translate(${Math.round(spot.x)}px, ${Math.round(spot.y)}px) rotate(${tilt.toFixed(2)}deg)`;
+      let arrow = null;
 
-      if (!spot.far) continue;
+      if (spot.far) {
+        const lx = spot.x + w / 2, ly = spot.y + h / 2;
+        const dx = pt.x - lx, dy = pt.y - ly;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len, uy = dy / len;
+        const [sx, sy] = edgeOfBox(lx, ly, w, h, ux, uy, 4);
+        const bow = Math.min(len * 0.22, 26) * (it.seed >= 0 ? 1 : -1);
+        const ex = pt.x - ux * (r + 5);
+        const ey = pt.y - uy * (r + 5);
+        arrow = {
+          sx, sy, ex, ey,
+          cx: (sx + ex) / 2 - uy * bow,
+          cy: (sy + ey) / 2 + ux * bow,
+        };
+      }
 
-      const lx = spot.x + w / 2, ly = spot.y + h / 2;
-      const dx = pt.x - lx, dy = pt.y - ly;
-      const len = Math.hypot(dx, dy) || 1;
-      const ux = dx / len, uy = dy / len;
-      const [sx, sy] = edgeOfBox(lx, ly, w, h, ux, uy, 4);
-      const ex = pt.x - ux * (r + 5);
-      const ey = pt.y - uy * (r + 5);
-      const bow = Math.min(len * 0.22, 26) * (it.seed >= 0 ? 1 : -1);
-      const cx = (sx + ex) / 2 - uy * bow;
-      const cy = (sy + ey) / 2 + ux * bow;
+      out.push({ item: it, pt, x: spot.x, y: spot.y, w, h, tilt, arrow, hidden: false });
+    }
 
+    return out;
+  }
+
+  /* The DOM half of the old layoutLabels: take placements and write them out. */
+  function applyLabels(placements) {
+    for (const old of arrowSvg.querySelectorAll('path.label-arrow')) old.remove();
+
+    for (const p of placements) {
+      const el = p.item.el;
+      if (p.hidden) { el.style.display = 'none'; continue; }
+      el.style.display = '';
+      el.style.transform =
+        `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) rotate(${p.tilt.toFixed(2)}deg)`;
+
+      if (!p.arrow) continue;
+      const a = p.arrow, O = ARROW_OFF;
       const path = document.createElementNS(SVGNS, 'path');
       path.setAttribute('class', 'label-arrow');
-      const O = ARROW_OFF;
       path.setAttribute('d',
-        `M ${(sx + O).toFixed(1)} ${(sy + O).toFixed(1)} ` +
-        `Q ${(cx + O).toFixed(1)} ${(cy + O).toFixed(1)} ` +
-        `${(ex + O).toFixed(1)} ${(ey + O).toFixed(1)}`);
+        `M ${(a.sx + O).toFixed(1)} ${(a.sy + O).toFixed(1)} ` +
+        `Q ${(a.cx + O).toFixed(1)} ${(a.cy + O).toFixed(1)} ` +
+        `${(a.ex + O).toFixed(1)} ${(a.ey + O).toFixed(1)}`);
       path.setAttribute('marker-end', 'url(#lbl-arrow)');
       arrowSvg.appendChild(path);
     }
+  }
+
+  function measureLabels() {
+    for (const it of labelItems) {
+      if (!it.w) { it.w = it.el.offsetWidth; it.h = it.el.offsetHeight; }
+    }
+  }
+
+  function layoutLabels(project) {
+    if (!labelItems.length) return;
+    measureLabels();
+    const size = map.getSize();
+    applyLabels(solveLabels({
+      items: labelItems,
+      toPoint: project || ((lat, lng) => map.latLngToLayerPoint([lat, lng])),
+      toScreen: (pt) => map.layerPointToContainerPoint(pt),
+      width: size.x,
+      height: size.y,
+      reserved: ribbonFootprint(),
+    }));
   }
 
   let zooming = false;
@@ -505,6 +628,179 @@
   // The pane pans with the map, so a relayout mid-drag is only needed to bring
   // newly-visible labels in — cheaper and steadier to do it when the pan lands.
   map.on('moveend viewreset resize', () => { if (!zooming) layoutLabels(); });
+
+  // The cartouche is pinned to the sheet, so it has to be un-panned every frame.
+  map.on('move', placeRibbon);
+  map.on('resize', renderRibbon);
+
+  /* --- Connection arcs --------------------------------------------------- */
+  /* Every pin tethered back to where the class actually met. Kept in its own
+     pane below the dots and the names: the user's worry was clutter, and an arc
+     must never be able to compete with a person's name for attention. */
+
+  map.createPane('arcs').style.zIndex = 450;   // over the tiles, under the dots
+  map.getPane('arcs').style.pointerEvents = 'none';
+
+  const arcLayer = L.layerGroup().addTo(map);
+  let showArcs = localStorage.getItem('wwf:arcs') === 'on';
+
+  /* Interpolated along the sphere, not the screen, so the line to Seoul bows
+     the way a flight path does instead of cutting flat across the plate. */
+  function greatCircle(from, to, steps) {
+    steps = steps || 48;
+    const rad = (d) => (d * Math.PI) / 180;
+    const deg = (r) => (r * 180) / Math.PI;
+    const la1 = rad(from.lat), lo1 = rad(from.lng);
+    const la2 = rad(to.lat), lo2 = rad(to.lng);
+
+    const d = 2 * Math.asin(Math.sqrt(
+      Math.sin((la2 - la1) / 2) ** 2 +
+      Math.cos(la1) * Math.cos(la2) * Math.sin((lo2 - lo1) / 2) ** 2));
+    if (!d || !isFinite(d)) return [[from.lat, from.lng], [to.lat, to.lng]];
+
+    const pts = [];
+    let prev = null;
+    for (let i = 0; i <= steps; i++) {
+      const f = i / steps;
+      const A = Math.sin((1 - f) * d) / Math.sin(d);
+      const B = Math.sin(f * d) / Math.sin(d);
+      const x = A * Math.cos(la1) * Math.cos(lo1) + B * Math.cos(la2) * Math.cos(lo2);
+      const y = A * Math.cos(la1) * Math.sin(lo1) + B * Math.cos(la2) * Math.sin(lo2);
+      const z = A * Math.sin(la1) + B * Math.sin(la2);
+
+      let lng = deg(Math.atan2(y, x));
+      /* Unwrap past ±180 rather than letting the path snap back across the
+         whole world, which is what a raw atan2 gives you over the Pacific. */
+      if (prev !== null) {
+        while (lng - prev > 180) lng -= 360;
+        while (prev - lng > 180) lng += 360;
+      }
+      prev = lng;
+      pts.push([deg(Math.atan2(z, Math.hypot(x, y))), lng]);
+    }
+    return pts;
+  }
+
+  function arcPaths() {
+    const origin = CFG.arcOrigin;
+    if (!origin || !pins.length) return [];
+    return groupPins(pins)
+      .filter((g) => Math.abs(g.lat - origin.lat) > 0.01 || Math.abs(g.lng - origin.lng) > 0.01)
+      .map((g) => greatCircle(origin, g));
+  }
+
+  function drawArcs() {
+    arcLayer.clearLayers();
+    if (!showArcs) return;
+    for (const line of arcPaths()) {
+      L.polyline(line, {
+        pane: 'arcs',
+        color: accentHex(),      // a literal, so a theme change means a redraw
+        weight: 1,
+        opacity: 0.22,
+        interactive: false,
+      }).addTo(arcLayer);
+    }
+  }
+
+  /* --- Subject ribbon ---------------------------------------------------- */
+  /* A cartouche, in the spirit of the lettered banner on an old chart: the
+     things this class learned, running along a curve.
+
+     It is anchored to the screen rather than to coordinates — a cartouche
+     belongs to the sheet, not to the territory — so it holds still while you
+     pan. That also lets its footprint be handed to the label solver, which
+     makes every name route around it without knowing what it is. */
+
+  map.createPane('ribbon').style.zIndex = 500;   // over the arcs, under the dots
+  map.getPane('ribbon').style.pointerEvents = 'none';
+
+  const RIBBON_ID = 'ribbon-curve';
+  const ribbonSvg = document.createElementNS(SVGNS, 'svg');
+  ribbonSvg.setAttribute('class', 'ribbon');
+  ribbonSvg.innerHTML =
+    `<defs><path id="${RIBBON_ID}" fill="none"></path></defs>` +
+    `<use href="#${RIBBON_ID}" class="ribbon-band"></use>` +
+    `<text class="ribbon-text" dy="0.35em">` +
+    `<textPath href="#${RIBBON_ID}" startOffset="50%" text-anchor="middle"></textPath></text>`;
+  map.getPane('ribbon').appendChild(ribbonSvg);
+
+  let showRibbon = localStorage.getItem('wwf:ribbon') === 'on';
+
+  const ribbonText = () => (CFG.subjects || []).join('   ·   ');
+
+  const RIBBON_FONT = 15;    // starting size, before the fit-to-curve shrink
+  const RIBBON_FILL = 0.94;  // fraction of the curve the lettering may occupy
+
+  /* One gentle S across the lower third, in viewport units so it reflows on
+     resize and the exporter can reproduce it at any output size. */
+  function ribbonCurve(w, h) {
+    const y = h * 0.80;
+    return [
+      w * 0.04, y - h * 0.045,
+      w * 0.33, y + h * 0.065,
+      w * 0.67, y - h * 0.085,
+      w * 0.96, y + h * 0.015,
+    ];
+  }
+
+  function ribbonPathD(w, h) {
+    const c = ribbonCurve(w, h);
+    return `M ${c[0]} ${c[1]} C ${c[2]} ${c[3]}, ${c[4]} ${c[5]}, ${c[6]} ${c[7]}`;
+  }
+
+  function bezierAt(c, t) {
+    const u = 1 - t;
+    return [
+      u * u * u * c[0] + 3 * u * u * t * c[2] + 3 * u * t * t * c[4] + t * t * t * c[6],
+      u * u * u * c[1] + 3 * u * u * t * c[3] + 3 * u * t * t * c[5] + t * t * t * c[7],
+    ];
+  }
+
+  function renderRibbon() {
+    ribbonSvg.style.display = showRibbon ? '' : 'none';
+    if (!showRibbon) return;
+    const size = map.getSize();
+    ribbonSvg.setAttribute('width', size.x);
+    ribbonSvg.setAttribute('height', size.y);
+    const path = ribbonSvg.querySelector('defs path');
+    path.setAttribute('d', ribbonPathD(size.x, size.y));
+    ribbonSvg.querySelector('textPath').textContent = ribbonText();
+
+    /* Shrink to fit rather than letting the tail run off the end of the band.
+       The exporter applies the same rule against the same fraction. */
+    const text = ribbonSvg.querySelector('.ribbon-text');
+    text.style.fontSize = `${RIBBON_FONT}px`;
+    const room = path.getTotalLength() * RIBBON_FILL;
+    const natural = text.getComputedTextLength ? text.getComputedTextLength() : 0;
+    if (natural > room && room > 0) {
+      text.style.fontSize = `${Math.max(7, RIBBON_FONT * (room / natural))}px`;
+    }
+
+    placeRibbon();
+  }
+
+  /* The pane pans with the map; a cartouche should not. Cancel the offset. */
+  function placeRibbon() {
+    if (!showRibbon) return;
+    const off = map.containerPointToLayerPoint([0, 0]);
+    ribbonSvg.style.transform = `translate(${off.x}px, ${off.y}px)`;
+  }
+
+  /* Boxes strung along the curve, for the label solver to treat as occupied. */
+  function ribbonFootprint() {
+    if (!showRibbon) return [];
+    const size = map.getSize();
+    const c = ribbonCurve(size.x, size.y);
+    const half = 20;
+    const boxes = [];
+    for (let i = 0; i <= 14; i++) {
+      const [x, y] = bezierAt(c, i / 14);
+      const lp = map.containerPointToLayerPoint([x, y]);
+      boxes.push({ x: lp.x - size.x / 28, y: lp.y - half, w: size.x / 14, h: half * 2 });
+    }
+    return boxes;
+  }
 
   function render() {
     pinLayer.clearLayers();
@@ -535,6 +831,7 @@
 
     buildLabels(built);
     layoutLabels();
+    drawArcs();
     updateTally(groups);
 
     if (!hasFitOnce && pins.length) {
@@ -867,18 +1164,127 @@
 
   /* --- Wire it up ------------------------------------------------------- */
 
-  function syncNamesBtn() {
-    $('names-btn').textContent = showNames ? 'Hide names' : 'Show names';
-    $('names-btn').setAttribute('aria-pressed', String(showNames));
+  /* --- Look panel -------------------------------------------------------- */
+
+  const look = $('look');
+  let exportStyle = 'clean';
+
+  function buildSwatches() {
+    const themes = $('theme-row');
+    themes.innerHTML = '';
+    for (const name of Object.keys(THEMES)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `swatch swatch-${name}`;
+      b.dataset.theme = name;
+      b.setAttribute('role', 'radio');
+      b.title = name;
+      b.innerHTML = `<span class="swatch-chip"></span><span class="swatch-name">${name}</span>`;
+      b.addEventListener('click', () => applyTheme(name, accentName));
+      themes.appendChild(b);
+    }
+
+    const accents = $('accent-row');
+    accents.innerHTML = '';
+    for (const [name, [hex]] of Object.entries(ACCENTS)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'accent-dot';
+      b.dataset.accent = name;
+      b.setAttribute('role', 'radio');
+      b.title = name;
+      b.style.background = hex;
+      b.addEventListener('click', () => applyTheme(themeName, name));
+      accents.appendChild(b);
+    }
   }
 
-  $('names-btn').addEventListener('click', () => {
-    showNames = !showNames;
+  function syncLookPanel() {
+    for (const b of document.querySelectorAll('#theme-row .swatch')) {
+      const on = b.dataset.theme === themeName;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-checked', String(on));
+    }
+    for (const b of document.querySelectorAll('#accent-row .accent-dot')) {
+      const on = b.dataset.accent === accentName;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-checked', String(on));
+    }
+    $('tg-names').checked = showNames;
+    $('tg-arcs').checked = showArcs;
+    $('tg-ribbon').checked = showRibbon;
+
+    const arcs = $('tg-arcs').closest('.toggle');
+    if (arcs) arcs.hidden = !CFG.arcOrigin;
+    if (CFG.arcOrigin && CFG.arcOrigin.label) {
+      $('tg-arcs-label').textContent = `Arcs from ${CFG.arcOrigin.label}`;
+    }
+  }
+
+  $('look-btn').addEventListener('click', () => {
+    look.hidden = !look.hidden;
+    if (!look.hidden) syncLookPanel();
+  });
+  $('look-close').addEventListener('click', () => { look.hidden = true; });
+
+  $('tg-names').addEventListener('change', (e) => {
+    showNames = e.target.checked;
     localStorage.setItem('wwf:names', showNames ? 'on' : 'off');
-    syncNamesBtn();
     render();
   });
-  syncNamesBtn();
+
+  $('tg-arcs').addEventListener('change', (e) => {
+    showArcs = e.target.checked;
+    localStorage.setItem('wwf:arcs', showArcs ? 'on' : 'off');
+    drawArcs();
+  });
+
+  $('tg-ribbon').addEventListener('change', (e) => {
+    showRibbon = e.target.checked;
+    localStorage.setItem('wwf:ribbon', showRibbon ? 'on' : 'off');
+    renderRibbon();
+    layoutLabels();          // names must re-route around (or back into) the band
+  });
+
+  for (const [id, mode] of [['ex-clean', 'clean'], ['ex-poster', 'poster']]) {
+    $(id).addEventListener('click', () => {
+      exportStyle = mode;
+      $('ex-clean').classList.toggle('is-on', mode === 'clean');
+      $('ex-poster').classList.toggle('is-on', mode === 'poster');
+      $('ex-clean').setAttribute('aria-checked', String(mode === 'clean'));
+      $('ex-poster').setAttribute('aria-checked', String(mode === 'poster'));
+    });
+  }
+
+  $('export-btn').addEventListener('click', async () => {
+    const btn = $('export-btn');
+    const status = $('export-status');
+    const choice = $('export-size').value;
+
+    let w, h;
+    if (choice === 'screen') {
+      const dpr = window.devicePixelRatio || 1;
+      w = Math.round(screen.width * dpr);
+      h = Math.round(screen.height * dpr);
+    } else {
+      [w, h] = choice.split('x').map(Number);
+    }
+
+    btn.disabled = true;
+    try {
+      await window.LedeMapExport.download({
+        width: w, height: h, style: exportStyle,
+        onProgress: (msg) => { status.textContent = msg; },
+      });
+      status.textContent = `Saved ${w} × ${h}.`;
+    } catch (err) {
+      status.textContent = err && err.message ? err.message : 'Export failed.';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  buildSwatches();
 
   map.getContainer().addEventListener('click', (e) => {
     const btn = e.target.closest && e.target.closest('.popup-edit');
@@ -907,7 +1313,11 @@
   });
 
   $('share-btn').addEventListener('click', async () => {
-    const url = location.href.split('#')[0];
+    /* Carry the current look in the link. Opening it doesn't overwrite what the
+       recipient already chose for themselves — see readLook — it just decides
+       how the map looks on arrival, which is what you want when projecting. */
+    const base = location.href.split('#')[0];
+    const url = `${base}#t=${themeName}&a=${accentName}`;
     try {
       if (navigator.share && matchMedia('(pointer: coarse)').matches) {
         await navigator.share({ title: CFG.title, url });
@@ -942,6 +1352,37 @@
   }
 
   if (!REMOTE) $('setup-notice').hidden = false;
+
+  const initialLook = readLook();
+  applyTheme(initialLook.theme, initialLook.accent, { quiet: true });
+  renderRibbon();
+  syncLookPanel();
+
+  /* Hand the exporter everything it needs to redraw this map onto a canvas.
+     It gets functions rather than values so it always reads current state. */
+  if (window.LedeMapExport) {
+    window.LedeMapExport.init({
+      map,
+      cfg: CFG,
+      groupPins,
+      dotRadius,
+      solveLabels,
+      measureLabels,
+      arcPaths,
+      ribbonCurve,
+      ribbonText,
+      labelParts,
+      getPins: () => pins,
+      getLabelItems: () => labelItems,
+      getTheme: () => ({
+        name: themeName,
+        spec: THEMES[themeName],
+        accent: accentHex(),
+        dark: themeName === 'night',
+      }),
+      flags: () => ({ names: showNames, arcs: showArcs, ribbon: showRibbon }),
+    });
+  }
 
   load(false);
   syncMineUi();

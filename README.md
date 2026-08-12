@@ -138,6 +138,44 @@ rely on the live site being up in six months; rely on the CSV below.
 
 ---
 
+## Look, and saving the map as an image
+
+The **Look** button opens everything cosmetic.
+
+**Themes** — Voyager (the default), Paper (pale, best for printing), Night (dark,
+best on a projector) and Ink (no place names at all, so only people's names
+appear). Five accent colours drive the dots, the arcs and the tethers together.
+Your choice is saved in your browser, and **Share link** hands out a URL carrying
+the current look — open that and the map arrives already themed, without
+disturbing what anyone else picked.
+
+**Arcs from Pulitzer Hall** — a great-circle line from Columbia out to every pin,
+interpolated along the sphere so the line to Seoul bows the way a flight path
+does. They sit in a pane below the dots and the names and are off by default;
+they are meant to be a texture, not a subject.
+
+**Subject ribbon** — the things the class learned, lettered along a curve across
+the map in the spirit of a cartouche on an old chart. Edit `subjects` in
+`config.js`. The ribbon reports its own footprint to the label solver, so names
+route around it rather than colliding with it, and the lettering shrinks to fit
+whatever curve the viewport produces.
+
+**Save as image** — writes a PNG at 1920×1080, 2560×1440, 4K, or your own screen
+size. *Clean* is the map alone, made to be a desktop background; *Poster* adds
+the title, the count and the date. It renders at 2× tiles, so a 4K export is
+sharp rather than an upscaled screenshot.
+
+> **How the export works, and the one thing that could break it.** The image is
+> redrawn from scratch onto a canvas — tiles, arcs, dots, names, tethers, ribbon
+> — rather than screenshotting the page, and it runs the *same* label solver the
+> live map uses, so the picture matches what you were looking at. That is only
+> possible because CARTO serves tiles with `access-control-allow-origin: *`; the
+> tiles are loaded `crossOrigin="anonymous"` so the canvas stays untainted and
+> can be saved. If CARTO ever dropped that header, export would fail with a
+> message saying a tile blocked it, and the fix would be to proxy the tiles.
+
+---
+
 ## Backups
 
 ```sh
@@ -168,11 +206,21 @@ collected it. It outlives the free tier, the paused project, and the repo.
 
 ## Making it yours
 
-- **Title** — `title` in `config.js`.
-- **Pin colour** — `--accent` in [styles.css](styles.css).
-- **Basemap** — swap `voyager` for `positron` (pale) or `dark_matter` (dark) in
-  the two tile URLs in [app.js](app.js). Dark plus a bright accent looks great
-  on a projector.
+Everything here is in [config.js](config.js):
+
+- **`title`** — shown in the header, on the poster export, and in the filename.
+  The `<title>` and `og:title` in [index.html](index.html) are separate: link
+  previews are read by crawlers that never run the JavaScript, so those have to
+  be edited by hand.
+- **`theme` / `accent`** — the look the map opens with, before anyone picks
+  their own.
+- **`arcOrigin`** — where the arcs radiate from. Set it to `null` to remove the
+  feature and its toggle entirely.
+- **`subjects`** — the ribbon text.
 - **Extra question** — the `note` field is deliberately open-ended. Change its
-  placeholder to whatever prompt suits the class: a favourite local spot, why
-  they left, what they'd order for breakfast there.
+  placeholder in `index.html` to whatever prompt suits the class: a favourite
+  local spot, why they left, what they'd order for breakfast there.
+
+Deeper changes: pin sizing is `dotRadius` in [app.js](app.js), and the label
+look is `.pin-label` in [styles.css](styles.css). Theme tokens are the
+`html[data-theme="…"]` blocks in the same file.

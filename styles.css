@@ -324,19 +324,14 @@ html, body {
 
 /* --- Name labels -------------------------------------------------------- */
 
+/* A Leaflet pane: positioned and z-ordered by Leaflet, sized by its children.
+   No inset/overflow here — a pane is a zero-size origin, not a box. */
 .label-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 640;            /* above the dots (600), below popups (700) */
   pointer-events: none;
-  overflow: hidden;
 }
 
 .label-arrows {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
   overflow: visible;
   color: var(--accent);    /* the arrowhead inherits this */
   transition: opacity .18s ease;

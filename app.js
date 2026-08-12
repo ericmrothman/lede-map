@@ -257,12 +257,28 @@
     'stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
     '</marker></defs>';
 
-  const labelLayer = document.createElement('div');
-  labelLayer.className = 'label-layer';
-  map.getContainer().appendChild(labelLayer);
+  /* A real Leaflet pane, not a free-floating overlay on the container. Panes
+     live inside .leaflet-map-pane, so this sits in the same stacking context as
+     the popups and can be ordered against them — above the dots at 600, below
+     the popups at 700. An overlay outside that pane outranks the whole thing no
+     matter what z-index the popups carry, which is what buried the cards.
 
+     The trade is coordinates: children of a pane are placed in layer space, so
+     Leaflet's own map-pane translation pans them for free. */
+  const labelLayer = map.createPane('pinLabels');
+  labelLayer.classList.add('label-layer');
+  labelLayer.style.zIndex = 655;
+
+  /* Arrows share that layer space. An SVG in a pane has no natural size, so it
+     gets a fixed oversized canvas shifted back by ARROW_OFF, letting paths use
+     the negative layer coordinates that appear left of and above the origin. */
+  const ARROW_OFF = 5000;
   const arrowSvg = document.createElementNS(SVGNS, 'svg');
   arrowSvg.setAttribute('class', 'label-arrows');
+  arrowSvg.setAttribute('width', ARROW_OFF * 2);
+  arrowSvg.setAttribute('height', ARROW_OFF * 2);
+  arrowSvg.style.left = `${-ARROW_OFF}px`;
+  arrowSvg.style.top = `${-ARROW_OFF}px`;
   arrowSvg.innerHTML = ARROW_DEFS;
   labelLayer.appendChild(arrowSvg);
 
@@ -376,19 +392,18 @@
     return [cx + ux * t, cy + uy * t];
   }
 
-  /* Where a point will land once a pending zoom finishes. Public projection
-     only: the pixel origin of a view is project(center, zoom) - size / 2. */
+  /* Where a point will sit in layer space once a pending zoom finishes. This is
+     the same call Leaflet's own markers use from their zoomanim handler, so the
+     labels land exactly where the dots do. */
   function projectorFor(zoom, center) {
-    const origin = map.project(center, zoom).subtract(map.getSize().divideBy(2));
-    return (lat, lng) => map.project([lat, lng], zoom).subtract(origin);
+    return (lat, lng) => map._latLngToNewLayerPoint(L.latLng(lat, lng), zoom, center);
   }
 
   function layoutLabels(project) {
     if (!labelItems.length) return;
-    const toPoint = project || ((lat, lng) => map.latLngToContainerPoint([lat, lng]));
+    const toPoint = project || ((lat, lng) => map.latLngToLayerPoint([lat, lng]));
 
     const size = map.getSize();
-    arrowSvg.setAttribute('viewBox', `0 0 ${size.x} ${size.y}`);
     for (const old of arrowSvg.querySelectorAll('path.label-arrow')) old.remove();
 
     const items = labelItems.map((it) => {
@@ -409,7 +424,8 @@
       const { pt, w, h, radius: r } = it;
 
       // Off-screen labels cost nothing to skip and would clutter the edges.
-      if (pt.x < -200 || pt.y < -200 || pt.x > size.x + 200 || pt.y > size.y + 200) {
+      const scr = map.layerPointToContainerPoint(pt);
+      if (scr.x < -200 || scr.y < -200 || scr.x > size.x + 200 || scr.y > size.y + 200) {
         it.el.style.display = 'none';
         continue;
       }
@@ -463,7 +479,11 @@
 
       const path = document.createElementNS(SVGNS, 'path');
       path.setAttribute('class', 'label-arrow');
-      path.setAttribute('d', `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`);
+      const O = ARROW_OFF;
+      path.setAttribute('d',
+        `M ${(sx + O).toFixed(1)} ${(sy + O).toFixed(1)} ` +
+        `Q ${(cx + O).toFixed(1)} ${(cy + O).toFixed(1)} ` +
+        `${(ex + O).toFixed(1)} ${(ey + O).toFixed(1)}`);
       path.setAttribute('marker-end', 'url(#lbl-arrow)');
       arrowSvg.appendChild(path);
     }
@@ -487,7 +507,9 @@
     layoutLabels();
   });
 
-  map.on('move viewreset resize', () => { if (!zooming) layoutLabels(); });
+  // The pane pans with the map, so a relayout mid-drag is only needed to bring
+  // newly-visible labels in — cheaper and steadier to do it when the pan lands.
+  map.on('moveend viewreset resize', () => { if (!zooming) layoutLabels(); });
 
   function render() {
     pinLayer.clearLayers();

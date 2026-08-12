@@ -30,9 +30,5 @@ window.MAP_CONFIG = {
      null to drop the arcs feature entirely. */
   arcOrigin: { lat: 40.8075, lng: -73.9626, label: 'Pulitzer Hall' },
 
-  /* How much air the exported image leaves around the pins, as a fraction of
-     each side. Bigger pulls the camera back and shows more of the world;
-     0.22 keeps the class comfortably clear of the edges. */
-  exportMargin: 0.22,
 
 };

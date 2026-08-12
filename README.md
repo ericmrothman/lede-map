@@ -167,9 +167,17 @@ size, made to be used as a desktop background. It renders from `@2x` tiles, so a
 Two things the export does differently from the screen, both on purpose. It
 leaves the basemap's own place names off: at export scale CARTO sets continent
 and country lettering enormous, and it ends up reading as the subject of the
-image instead of the people. And it frames loose rather than cropping tight to
-the pins, with equal air on every side. `exportMargin` in `config.js` controls
-how much: raise it to pull the camera further back, lower it to crop in.
+image instead of the people. And it doesn't frame to the pins at all: it shows the
+whole world, zoomed out as far as it goes before the map repeats or leaves bars
+down the sides, so one world spans exactly the width of the image.
+
+Vertically it centres on the band of inhabited land — the north of Greenland
+down to Cape Horn — rather than on the projection. Antarctica is a third of the
+Mercator square and nobody lives there; centring on the map's own middle spends
+the bottom of the picture on empty ice and pushes everyone into the top half.
+If someone lives far enough south that the frame would cut them off, it nudges
+down to keep them in. A preference about centring should never cost you a
+classmate.
 
 > **How the export works, and the one thing that could break it.** The image is
 > redrawn from scratch onto a canvas — tiles, arcs, dots, names, tethers —
@@ -222,8 +230,6 @@ Everything here is in [config.js](config.js):
   their own.
 - **`arcOrigin`** — where the arcs radiate from. Set it to `null` to remove the
   feature and its toggle entirely.
-- **`exportMargin`** — air around the pins in an exported image, as a fraction
-  of each side. `0.22` is the default; `0.30` pulls well back, `0.12` crops in.
 - **Extra question** — the `note` field is deliberately open-ended. Change its
   placeholder in `index.html` to whatever prompt suits the class: a favourite
   local spot, why they left, what they'd order for breakfast there.

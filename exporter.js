@@ -25,7 +25,6 @@ window.LedeMapExport = (function () {
   const REF_WIDTH = 1600;
   const TILE = 256;
   const MAX_TILES = 600;          // a mis-framed view must not fetch thousands
-  const MARGIN = 0.22;            // air around the pins, as a fraction of each axis
   const ARC_ALPHA = 0.26;         // matches the live map
   const SERIF = '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif';
   const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif';
@@ -95,42 +94,45 @@ window.LedeMapExport = (function () {
 
   /* --- Framing ----------------------------------------------------------- */
 
-  /* Pick centre and zoom that fit everything into the reference box. Leaflet's
-     getBoundsZoom is tied to the live map's size, so this does it directly and
-     keeps the fractional part: flooring to an integer zoom can waste up to half
-     the frame. Tiles come from the integer below and get scaled to suit.
+  /* Framing is not fitted to the pins. It shows the whole world, zoomed out as
+     far as it goes before the map either repeats or leaves bars down the sides:
+     one world spanning exactly the width of the frame.
 
-     Centred on the middle of the pins' extent, which is what puts equal air
-     above and below. Weighting toward the centre of mass was tried and looked
-     wrong: most of the class is in the northern hemisphere, so the camera rode
-     up and left the picture sitting high in the frame. Symmetry reads better
-     than statistics here. */
-  function frame(points, refW, refH, padX, padY) {
+     Vertically it is centred on the band of inhabited land rather than on the
+     projection. Antarctica is a third of the Mercator square and nobody in the
+     class lives there, so centring on the map's own middle spends the bottom of
+     the picture on empty ice and pushes everyone up into the top half. The band
+     runs from the north of Greenland to Cape Horn. */
+  const LAND_NORTH = 83.6;
+  const LAND_SOUTH = -56;
+
+  function frame(refW, refH, pins) {
     const map = app.map;
-    const lats = points.map((p) => p[0]);
-    const lngs = points.map((p) => p[1]);
-    const bounds = L.latLngBounds(
-      [Math.min(...lats), Math.min(...lngs)],
-      [Math.max(...lats), Math.max(...lngs)]
-    );
+    const zoom = Math.log2(refW / 256);
+    const worldH = 256 * Math.pow(2, zoom);
+    const half = refH / 2;
 
-    const nw = map.project(bounds.getNorthWest(), 0);
-    const se = map.project(bounds.getSouthEast(), 0);
-    const w0 = Math.max(Math.abs(se.x - nw.x), 1e-6);
-    const h0 = Math.max(Math.abs(se.y - nw.y), 1e-6);
+    const top = map.project([LAND_NORTH, 0], zoom).y;
+    const bottom = map.project([LAND_SOUTH, 0], zoom).y;
+    let cy = (top + bottom) / 2;
 
-    const fit = Math.min((refW - padX * 2) / w0, (refH - padY * 2) / h0);
-    const zoom = Math.max(0, Math.min(18, Math.log2(fit)));
+    /* Nobody may be cropped out of their own class photo. A 16:9 frame cannot
+       hold the whole inhabited band, so someone far south — the Falklands, in
+       this class — can fall below the bottom edge. Where it takes only a nudge
+       to bring everyone back in, take it; the centring is a preference, but a
+       missing classmate is a bug. */
+    if (pins && pins.length) {
+      const ys = pins.map((p) => map.project(p, zoom).y);
+      const lo = Math.min(...ys) - 46;      // room for the label above the dot
+      const hi = Math.max(...ys) + 46;
+      if (hi - lo <= refH) cy = Math.min(Math.max(cy, hi - half), lo + half);
+    }
 
-    const projected = points.map((p) => map.project(p, zoom));
-    const xs = projected.map((p) => p.x);
-    const ys = projected.map((p) => p.y);
+    // Hold the frame inside the map so no edge shows through as blank paper.
+    cy = worldH < refH ? worldH / 2 : Math.min(Math.max(cy, half), worldH - half);
 
     return {
-      center: map.unproject([
-        (Math.min(...xs) + Math.max(...xs)) / 2,
-        (Math.min(...ys) + Math.max(...ys)) / 2,
-      ], zoom),
+      center: map.unproject([map.project([0, 0], zoom).x, cy], zoom),
       zoom,
     };
   }
@@ -218,21 +220,7 @@ window.LedeMapExport = (function () {
     g.fillRect(0, 0, refW, refH);
 
     const groups = app.groupPins(pins);
-    const seeds = groups.map((gr) => [gr.lat, gr.lng]);
-    if (flags.arcs && app.cfg.arcOrigin) {
-      seeds.push([app.cfg.arcOrigin.lat, app.cfg.arcOrigin.lng]);
-    }
-    /* Framed loose on purpose. A tight fit crops in to the pins and the result
-       reads as a diagram; leaving this much air around them keeps the shape of
-       the world in the picture, which is the point of the thing. It also gives
-       every name somewhere to sit — a dot inside the frame can still carry a
-       label that isn't, and the solver may only choose among spots that fit.
-
-       The margin is a fraction of each axis, not a single number: a width-based
-       pad applied to a 16:9 height eats most of the frame, and the pins end up
-       a thin band across the middle. */
-    const margin = typeof app.cfg.exportMargin === 'number' ? app.cfg.exportMargin : MARGIN;
-    const view = frame(seeds, refW, refH, refW * margin, refH * margin);
+    const view = frame(refW, refH, groups.map((gr) => [gr.lat, gr.lng]));
 
     const originRef = map.project(view.center, view.zoom).subtract([refW / 2, refH / 2]);
     const toPoint = (lat, lng) => {

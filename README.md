@@ -37,11 +37,10 @@ window.MAP_CONFIG = {
 
 > **Is it okay that the key is public?** Yes — that is what the anon key is for.
 > It identifies the project, not a person. Everything it's permitted to do is
-> defined by the policies you just ran: read pins, add a pin, and edit or delete
-> only a pin whose secret token you hold. It cannot touch anyone else's entry,
-> cannot read the secret column, and cannot reach anything else in the database.
-> Keep the **`service_role`** key out of this repo — that one really is a master
-> key.
+> defined by the policies you just ran: read pins, add a pin, edit any pin, and
+> delete only a pin whose secret token you hold. It cannot read the secret
+> column and cannot reach anything else in the database. Keep the
+> **`service_role`** key out of this repo — that one really is a master key.
 
 ### 3. Publish
 
@@ -110,16 +109,22 @@ Realistically nobody in your class will. If someone does, delete the row from th
 Supabase SQL Editor — there's a cheat sheet of moderation queries at the bottom
 of `supabase-setup.sql`.
 
-**Editing and removing your own pin** work from the popup (click your dot →
-**Edit**) and from the panel, and only from the browser you added it in. The
-ownership token lives in `localStorage`; clear your browser data and you lose
-the ability to change that entry yourself. Nobody else can ever edit it — the
-database checks the token, not the browser.
+**Anyone can edit any pin.** Click a dot or a name, then **Edit**. This is
+deliberate: it works like a shared whiteboard, so a typo or a wrong city can be
+fixed by whoever notices, and nobody is locked out because they added their pin
+on a different device. The trade is that there is no edit history — a bad edit
+overwrites the old value for good, so take CSV exports if the data matters.
 
-> **If you set the project up before the Edit button existed**, run
-> [supabase-migration-edit.sql](supabase-migration-edit.sql) once in the
-> Supabase SQL Editor. Until then, Edit will tell you the database refused the
-> change. `supabase-setup.sql` already includes it for a fresh project.
+**Deleting** is still restricted to whoever created the pin, from the browser
+they created it in. A wrong edit can be edited back; a deletion cannot be
+undone. The ownership token lives in that browser's `localStorage`, so clearing
+site data means you can no longer delete your own entry — you can still edit it,
+and you can always delete rows yourself from the Supabase SQL Editor.
+
+> **Upgrading an existing project:** run
+> [supabase-migration-open-edit.sql](supabase-migration-open-edit.sql) once in
+> the Supabase SQL Editor. Until then, Edit reports that the database refused
+> the change. `supabase-setup.sql` already includes it for a fresh project.
 
 **Nominatim is rate-limited** to roughly one request per second per user. The
 debounce handles normal typing. If the whole class submits in the same thirty

@@ -59,6 +59,7 @@ drop policy if exists pins_public_read   on public.pins;
 drop policy if exists pins_public_insert on public.pins;
 drop policy if exists pins_delete_own    on public.pins;
 drop policy if exists pins_update_own    on public.pins;
+drop policy if exists pins_update_any    on public.pins;
 
 -- Anyone with the link can see the map.
 create policy pins_public_read on public.pins
@@ -84,26 +85,17 @@ create policy pins_delete_own on public.pins
     )
   );
 
--- Editing works the same way: prove ownership with the secret. USING picks the
--- rows you may target, WITH CHECK constrains what they may become — both are
--- needed, since USING alone would let a row be edited into an unownable state.
-create policy pins_update_own on public.pins
+-- Editing is open: anyone with the link may correct any entry, deliberately.
+-- The column grants above still exclude `secret`, so an editor can never
+-- overwrite the token that lets someone delete their own pin.
+create policy pins_update_any on public.pins
   for update to anon
-  using (
-    secret <> ''
-    and secret = coalesce(
-      current_setting('request.headers', true)::json ->> 'x-pin-secret', ''
-    )
-  )
-  with check (
-    secret <> ''
-    and secret = coalesce(
-      current_setting('request.headers', true)::json ->> 'x-pin-secret', ''
-    )
-  );
+  using (true)
+  with check (true);
 
--- So: a visitor may read every pin, add one, and edit or delete only the pin
--- whose secret their browser holds. Nobody can touch anybody else's entry.
+-- So: a visitor may read every pin, add one, and edit any of them. Deletion
+-- stays restricted to whoever created the pin, since a wrong edit can be
+-- edited back and a deletion cannot be undone.
 
 -- ===========================================================================
 --  Moderation cheat sheet (run these yourself in the SQL Editor, which uses

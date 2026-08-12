@@ -83,7 +83,7 @@
       return pin;
     },
 
-    async update(id, patch, secret) {
+    async update(id, patch) {
       const res = await fetch(
         `${CFG.supabaseUrl}/rest/v1/pins?id=eq.${encodeURIComponent(id)}`,
         {
@@ -92,7 +92,6 @@
             apikey: CFG.supabaseKey,
             Authorization: `Bearer ${CFG.supabaseKey}`,
             'Content-Type': 'application/json',
-            'X-Pin-Secret': secret,
             Prefer: 'return=minimal',
           },
           body: JSON.stringify(patch),
@@ -148,7 +147,7 @@
     } catch { /* non-JSON error body */ }
     if (res.status === 401 || res.status === 403) {
       return op === 'edit'
-        ? 'The database will not accept edits yet — run supabase-migration-edit.sql in the Supabase SQL Editor.'
+        ? 'The database will not accept edits yet — run supabase-migration-open-edit.sql in the Supabase SQL Editor.'
         : 'The database rejected that. Check the anon key and the security policies.';
     }
     return detail || `Request failed (${res.status})`;
@@ -216,18 +215,14 @@
 
   function popupHtml(group) {
     const place = group.entries[0].label;
-    const m = mine.get();
     const items = group.entries
       .map((p) => {
         const who = p.name
           ? `<span class="popup-name">${esc(p.name)}</span>`
           : '<span class="popup-anon">someone</span>';
         const note = p.note ? `<span class="popup-note">${esc(p.note)}</span>` : '';
-        // Only your own row, and only in the browser holding its secret —
-        // the database enforces the same rule regardless of what's rendered.
-        const edit = m && m.id === p.id
-          ? `<button type="button" class="popup-edit" data-pin="${esc(p.id)}">Edit</button>`
-          : '';
+        // Anyone can fix anyone's entry — a shared whiteboard, not a profile.
+        const edit = `<button type="button" class="popup-edit" data-pin="${esc(p.id)}">Edit</button>`;
         return `<li><span class="popup-row">${who}${edit}</span>${note}</li>`;
       })
       .join('');
@@ -640,16 +635,19 @@
   /* One panel does both jobs; this keeps its wording honest about which. */
   function syncMode() {
     const editing = Boolean(editingId);
-    $('panel-title').textContent = editing ? 'Edit your entry' : 'Put yourself on the map';
+    const m = mine.get();
+    const own = editing && m && m.id === editingId;
+    $('panel-title').textContent = editing
+      ? (own ? 'Edit your entry' : 'Edit this entry')
+      : 'Put yourself on the map';
     submitBtn.textContent = editing ? 'Save changes' : 'Add my pin';
     $('cancel-edit').hidden = !editing;
     $('mine').hidden = editing || !mine.get();
   }
 
   function startEdit(pinId) {
-    const m = mine.get();
     const pin = pins.find((p) => p.id === pinId);
-    if (!pin || !m || m.id !== pin.id) return;
+    if (!pin) return;
 
     editingId = pin.id;
     map.closePopup();
@@ -773,9 +771,11 @@
 
     try {
       if (editingId) {
+        await store.update(editingId, fields);
+        // Only re-stamp ownership when it really is your row; editing someone
+        // else's must not hand you their delete token.
         const m = mine.get();
-        await store.update(editingId, fields, m && m.secret);
-        mine.set({ id: editingId, secret: m.secret, label: fields.label });
+        if (m && m.id === editingId) mine.set({ id: m.id, secret: m.secret, label: fields.label });
 
         const i = pins.findIndex((p) => p.id === editingId);
         if (i >= 0) pins[i] = Object.assign({}, pins[i], fields);
